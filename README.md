@@ -1,6 +1,6 @@
-## Go Metadium
+## Go IMN
 
-Golang implementation of the Metadium project.
+Golang implementation of the IMN project.
 
 ## Building
 
