@@ -4,21 +4,21 @@ Golang implementation of the IMN project.
 
 ## Building
 
-`geth` has been renamed to `gmet`. Building it is the same as go-ethereum.
+`geth` has been renamed to `gimn`. Building it is the same as go-ethereum.
 
-    make gmet
+    make gimn
 
 For the convenience of installation, other targets have been added to the default target.
 
     make
 
-will build `logrot` (log rotator) and `metadium.tar.gz` in `build` directory, in addtion. `metadium.tar.gz` has the following files.
+will build `logrot` (log rotator) and `IMN.tar.gz` in `build` directory, in addtion. `IMN.tar.gz` has the following files.
 
-    bin/gmet
-    bin/gmet.sh
+    bin/gimn
+    bin/gimn.sh
     bin/solc.sh
     bin/logrot
-    conf/MetadiumGovernance.js
+    conf/IMNGovernance.js
     conf/genesis-template.json
     conf/config.json.example
     
@@ -26,9 +26,9 @@ will build `logrot` (log rotator) and `metadium.tar.gz` in `build` directory, in
 
 As we use `rocksdb` `C` implementation for better performance, library dependency becomes an issue. To mitigate that, we use a docker image to build our official image.
 
-    make gmet-linux
+    make gimn-linux
 
-will build gmet for ubuntu.
+will build gimn for ubuntu.
 
 ### Build with LevelDB instead of Rocksdb
 
@@ -38,47 +38,47 @@ To avoid library dependency issue, one can forgo `rocksdb` with
 
 This is default behavior in non-linux environment, e.g. in MacOS X.
 
-## Join the Metadium Mainnet or Testnet
+## Join the IMN Mainnet or Testnet
 
-One can use the following command lines to join the Metadium networks. Note that the default RPC port for `gmet` is 8588, and p2p port is 8589. As with `geth`, if `--datadir` is missing, ~/.metadium is the data directory. 
+One can use the following command lines to join the IMN networks. Note that the default RPC port for `gimn` is 8588, and p2p port is 8589. As with `geth`, if `--datadir` is missing, ~/.imn is the data directory. 
 
-### Metadium Mainnet
+### IMN Mainnet
 
-    gmet --syncmode full --datadir {data_folder} --rpc --rpcaddr 0.0.0.0
+    gimn --syncmode full --datadir {data_folder} --rpc --rpcaddr 0.0.0.0
     
-### Metadium Testnet
+### IMN Testnet
 
-    gmet --testnet</b> --syncmode full --datadir {data_folder} --rpc --rpcaddr 0.0.0.0
+    gimn --testnet</b> --syncmode full --datadir {data_folder} --rpc --rpcaddr 0.0.0.0
 
 ## Setting Up a New Network
 
-One can use `gmet.sh` script to make setup process a little easier. `gmet.sh` assumes metadium data directory to be `/opt/<node-name>`
+One can use `gimn.sh` script to make setup process a little easier. `gimn.sh` assumes imn data directory to be `/opt/<node-name>`
 
 ### Initial Network
 
-First create data directory in `/opt/`, say `/opt/meta`. Then, unpack metadium.tar.gz in the directory.
+First create data directory in `/opt/`, say `/opt/meta`. Then, unpack IMN.tar.gz in the directory.
 
     mkdir /opt/meta
     cd /opt/meta
-    tar xvfz <dir>/metadium.tar.gz
+    tar xvfz <dir>/IMN.tar.gz
 
 Once initial members / accounts and nodes are determined (at least one member / account and node are required), create a configuration file using `conf/config.json.example` as a template, say `config.json`. A member designated as `bootnode` has a special meaning. Only that account can create the governance contracts, and only that node is allowed to generate blocks before governance contracts are established. These are recorded in the genesis block as the `coinbase` and the last 64 bytes of the `extraData`.
 
 #### Account and Node IDs
 
-One can reuse existing accounts and nodes. Account files are in `keystore` directory, and `geth/nodekey` is the node key / id file. Or one can use `gmet` to create accounts and node keys, and copy them to data directory.
+One can reuse existing accounts and nodes. Account files are in `keystore` directory, and `geth/nodekey` is the node key / id file. Or one can use `gimn` to create accounts and node keys, and copy them to data directory.
 
 To create a new account file, run the following.
 
-    bin/gmet metadium new-account --out <account-file-name>
+    bin/gimn imn new-account --out <account-file-name>
 
 To create a new node key,
 
-    bin/gmet metadium new-nodekey --out <node-key-file-name>
+    bin/gimn imn new-nodekey --out <node-key-file-name>
 
 To get node id, which is the public key of a `nodekey`.
 
-    bin/gmet metadium nodeid <node-key-file-name>
+    bin/gimn imn nodeid <node-key-file-name>
     
 `idv5` is the one that should be used in config.json file.
 
@@ -97,26 +97,26 @@ The same for accounts
 
 Running the following command generates `genesis.json`.
 
-    bin/gmet.sh init <node-name> config.json
+    bin/gimn.sh init <node-name> config.json
 
 e.g.
 
-    bin/gmet.sh init meta config.json
+    bin/gimn.sh init meta config.json
 
 Copy the newly created `genesis.json` to other nodes's data directories.
 
-Now start gmet.
+Now start gimn.
 
-    bin/gmet.sh start
+    bin/gimn.sh start
 
 It's time to initialize governance contracts. Here we'll do a simple one-stop setup. Note that this is just for test. The real governance setup is a multi step process involving several proposals and votes. We'll prepare detailed governance setup documents later. Fow now, just do the following is enough.
 
-    bin/gmet.sh init-gov meta config.json <account-file>
+    bin/gimn.sh init-gov meta config.json <account-file>
     
 Now start the console, and check if governance contracts are set up or not.
 
-    bin/gmet.sh console
-    > admin.metadiumInfo
+    bin/gimn.sh console
+    > admin.imnInfo
 
 If this shows nodes as configured in config.json, it's time to initialize etcd.
 
@@ -124,7 +124,7 @@ If this shows nodes as configured in config.json, it's time to initialize etcd.
 
 Check if `etcd` is configured successfully.
 
-    > admin.metadiumInfo.etcd
+    > admin.imnInfo.etcd
 
 #### Other Initial Nodes
 
@@ -137,34 +137,34 @@ Set up the data directory and copy the `genesis` file as follows.
     mkdir keystore
     chmod 0700 keystore
     cp <account-files> keystore/
-    tar xvfz <dir>/metadium.tar.gz
+    tar xvfz <dir>/IMN.tar.gz
     # copy genesis.json
-    bin/gmet.sh start
+    bin/gimn.sh start
 
 Once these nodes are setup, the first node will automatically connect and chain synchronization will follow.
 
-### Metadium Info
+### IMN Info
 
-    bin/gmet.sh console
+    bin/gimn.sh console
     ...
-    > admin.metadiumInfo
+    > admin.imnInfo
 
 ### Starting & Stopping Nodes
 
 To start or stop a single node
 
-    bin/gmet.sh start
-    bin/gmet.sh stop
+    bin/gimn.sh start
+    bin/gimn.sh stop
 
 ### Starting Non-mining Nodes
 
 First download genesis.json from existing nodes to a data directory.
 
-    bin/gmet metadium download-genesis --url http://<ip> --out genesis.json
+    bin/gimn imn download-genesis --url http://<ip> --out genesis.json
 
-After getting enodes of mining nodes, run gmet as follows.
+After getting enodes of mining nodes, run gimn as follows.
 
-    bin/gmet --syncmode full --datadir <data-directory> --bootnodes <enodes> --rpc --rpcaddr 0.0.0.0
+    bin/gimn --syncmode full --datadir <data-directory> --bootnodes <enodes> --rpc --rpcaddr 0.0.0.0
 
 ### The original go-ethereum README follows...
 
