@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: geth android ios evm all test clean rocksdb etcd
+.PHONY: geth android ios evm all test clean rocksdb
 .PHONY: gimn-linux
 
 GOBIN = ./build/bin
@@ -29,7 +29,7 @@ ROCKSDB_DIR=$(shell pwd)/rocksdb
 ROCKSDB_TAG=-tags rocksdb
 endif
 
-imn: etcd gimn logrot
+imn: gimn logrot
 	@[ -d build/conf ] || mkdir -p build/conf
 	@cp -p metadium/scripts/gimn.sh metadium/scripts/solc.sh build/bin/
 	@cp -p metadium/scripts/config.json.example		\
@@ -40,7 +40,7 @@ imn: etcd gimn logrot
 	@(cd build; tar cfz imn.tar.gz bin conf)
 	@echo "Done building build/imn.tar.gz"
 
-gimn: etcd rocksdb metadium/governance_abi.go
+gimn: rocksdb metadium/governance_abi.go
 ifeq ($(USE_ROCKSDB), NO)
 	$(GORUN) build/ci.go install $(ROCKSDB_TAG) ./cmd/gimn
 else
@@ -110,7 +110,7 @@ devtools:
 	@type "solc" 2> /dev/null || echo 'Please install solc'
 	@type "protoc" 2> /dev/null || echo 'Please install protoc'
 
-gimn-linux: etcd
+gimn-linux:
 	@docker --version > /dev/null 2>&1;				\
 	if [ ! $$? = 0 ]; then						\
 		echo "Docker not found.";				\
@@ -129,11 +129,6 @@ rocksdb:
 	@[ ! -e rocksdb/.git ] && git submodule update --init rocksdb;	\
 	cd $(ROCKSDB_DIR) && make -j8 static_lib;
 endif
-
-etcd:
-	@if [ ! -e etcd/.git ]; then			\
-		git submodule update --init etcd;	\
-	fi
 
 AWK_CODE='								\
 BEGIN { print "package metadium"; bin = 0; name = ""; abi = ""; }	\
