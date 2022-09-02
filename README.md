@@ -12,7 +12,7 @@ For the convenience of installation, other targets have been added to the defaul
 
     make
 
-will build `logrot` (log rotator) and `IMN.tar.gz` in `build` directory, in addtion. `IMN.tar.gz` has the following files.
+will build `logrot` (log rotator) and `imn.tar.gz` in `build` directory, in addtion. `imn.tar.gz` has the following files.
 
     bin/gimn
     bin/gimn.sh
@@ -56,11 +56,11 @@ One can use `gimn.sh` script to make setup process a little easier. `gimn.sh` as
 
 ### Initial Network
 
-First create data directory in `/opt/`, say `/opt/meta`. Then, unpack IMN.tar.gz in the directory.
+First create data directory in `/opt/`, say `/opt/meta`. Then, unpack imn.tar.gz in the directory.
 
     mkdir /opt/meta
     cd /opt/meta
-    tar xvfz <dir>/IMN.tar.gz
+    tar xvfz <dir>/imn.tar.gz
 
 Once initial members / accounts and nodes are determined (at least one member / account and node are required), create a configuration file using `conf/config.json.example` as a template, say `config.json`. A member designated as `bootnode` has a special meaning. Only that account can create the governance contracts, and only that node is allowed to generate blocks before governance contracts are established. These are recorded in the genesis block as the `coinbase` and the last 64 bytes of the `extraData`.
 
@@ -137,7 +137,7 @@ Set up the data directory and copy the `genesis` file as follows.
     mkdir keystore
     chmod 0700 keystore
     cp <account-files> keystore/
-    tar xvfz <dir>/IMN.tar.gz
+    tar xvfz <dir>/imn.tar.gz
     # copy genesis.json
     bin/gimn.sh start
 

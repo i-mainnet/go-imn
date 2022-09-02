@@ -2,8 +2,8 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: geth android ios evm all test clean rocksdb etcd
-.PHONY: gmet-linux
+.PHONY: geth android ios evm all test clean rocksdb
+.PHONY: gimn-linux
 
 GOBIN = ./build/bin
 GO ?= latest
@@ -29,27 +29,27 @@ ROCKSDB_DIR=$(shell pwd)/rocksdb
 ROCKSDB_TAG=-tags rocksdb
 endif
 
-metadium: etcd gmet logrot
+imn: gimn logrot
 	@[ -d build/conf ] || mkdir -p build/conf
-	@cp -p metadium/scripts/gmet.sh metadium/scripts/solc.sh build/bin/
+	@cp -p metadium/scripts/gimn.sh metadium/scripts/solc.sh build/bin/
 	@cp -p metadium/scripts/config.json.example		\
 		metadium/scripts/genesis-template.json		\
 		metadium/contracts/MetadiumGovernance.js	\
 		metadium/scripts/deploy-governance.js		\
 		build/conf/
-	@(cd build; tar cfz metadium.tar.gz bin conf)
-	@echo "Done building build/metadium.tar.gz"
+	@(cd build; tar cfz imn.tar.gz bin conf)
+	@echo "Done building build/imn.tar.gz"
 
-gmet: etcd rocksdb metadium/governance_abi.go
+gimn: rocksdb metadium/governance_abi.go
 ifeq ($(USE_ROCKSDB), NO)
-	$(GORUN) build/ci.go install $(ROCKSDB_TAG) ./cmd/gmet
+	$(GORUN) build/ci.go install $(ROCKSDB_TAG) ./cmd/gimn
 else
 	CGO_CFLAGS=-I$(ROCKSDB_DIR)/include \
 		CGO_LDFLAGS="-L$(ROCKSDB_DIR) -lrocksdb -lm -lstdc++ $(shell awk '/PLATFORM_LDFLAGS/ {sub("PLATFORM_LDFLAGS=", ""); print} /JEMALLOC=1/ {print "-ljemalloc"}' < $(ROCKSDB_DIR)/make_config.mk)" \
-		$(GORUN) build/ci.go install $(ROCKSDB_TAG) ./cmd/gmet
+		$(GORUN) build/ci.go install $(ROCKSDB_TAG) ./cmd/gimn
 endif
 	@echo "Done building."
-	@echo "Run \"$(GOBIN)/gmet\" to launch gmet."
+	@echo "Run \"$(GOBIN)/gimn\" to launch gimn."
 
 logrot:
 	$(GORUN) build/ci.go install ./cmd/logrot
@@ -110,7 +110,7 @@ devtools:
 	@type "solc" 2> /dev/null || echo 'Please install solc'
 	@type "protoc" 2> /dev/null || echo 'Please install protoc'
 
-gmet-linux: etcd
+gimn-linux:
 	@docker --version > /dev/null 2>&1;				\
 	if [ ! $$? = 0 ]; then						\
 		echo "Docker not found.";				\
@@ -129,11 +129,6 @@ rocksdb:
 	@[ ! -e rocksdb/.git ] && git submodule update --init rocksdb;	\
 	cd $(ROCKSDB_DIR) && make -j8 static_lib;
 endif
-
-etcd:
-	@if [ ! -e etcd/.git ]; then			\
-		git submodule update --init etcd;	\
-	fi
 
 AWK_CODE='								\
 BEGIN { print "package metadium"; bin = 0; name = ""; abi = ""; }	\
