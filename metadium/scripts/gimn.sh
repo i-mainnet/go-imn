@@ -115,7 +115,7 @@ function wipe ()
 
     cd $d
     /bin/rm -rf geth/LOCK geth/chaindata geth/ethash geth/lightchaindata \
-	geth/transactions.rlp geth/nodes geth/triecache geth.ipc logs/* etcd
+	geth/transactions.rlp geth/nodes geth/triecache gimn.ipc logs/* etcd
 }
 
 function wipe_all ()
@@ -171,7 +171,7 @@ function start ()
     [ "$PORT" = "" ] || RPCOPT="${RPCOPT} --ws.port $((${PORT}+10))"
     [ "$NONCE_LIMIT" = "" ] || NONCE_LIMIT="--noncelimit $NONCE_LIMIT"
     [ "$BOOT_NODES" = "" ] || BOOT_NODES="--bootnodes $BOOT_NODES"
-    [ "$TESTNET" = "1" ] && TESTNET=--meta-testnet
+    [ "$TESTNET" = "1" ] && TESTNET=--imn-testnet
     if [ "$DISCOVER" = "0" ]; then
 	DISCOVER=--nodiscover
     else
