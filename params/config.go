@@ -141,7 +141,7 @@ var (
 
 	// ImnMainnetChainConfig contains the chain parameters to run a node on the IMN main network.
 	ImnMainnetChainConfig = &ChainConfig{
-		ChainID:             big.NewInt(11),
+		ChainID:             big.NewInt(8282),
 		HomesteadBlock:      big.NewInt(0),
 		DAOForkBlock:        big.NewInt(0),
 		DAOForkSupport:      true,
@@ -160,7 +160,7 @@ var (
 
 	// ImnTestnetChainConfig contains the chain parameters to run a node on the IMN test network.
 	ImnTestnetChainConfig = &ChainConfig{
-		ChainID:             big.NewInt(12),
+		ChainID:             big.NewInt(8283),
 		HomesteadBlock:      big.NewInt(0),
 		DAOForkBlock:        big.NewInt(0),
 		DAOForkSupport:      true,

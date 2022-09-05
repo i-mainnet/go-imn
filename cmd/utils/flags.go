@@ -138,7 +138,7 @@ var (
 	}
 	NetworkIdFlag = cli.Uint64Flag{
 		Name:  "networkid",
-		Usage: "Explicitly set network id (integer, 11=ImnMainnet, 12=ImnTestnet)(For testnets: use --meta-testnet --ropsten, --rinkeby, --goerli instead)",
+		Usage: "Explicitly set network id (integer, 8282=ImnMainnet, 8283=ImnTestnet)(For testnets: use --imn-testnet --ropsten, --rinkeby, --goerli instead)",
 		Value: ethconfig.Defaults.NetworkId,
 	}
 	MainnetFlag = cli.BoolFlag{
