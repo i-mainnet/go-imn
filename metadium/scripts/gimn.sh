@@ -63,9 +63,9 @@ function init ()
     echo "PORT=8588
 DISCOVER=0" > $d/.rc
     ${GIMN} --datadir $d init $d/genesis.json
-    echo "Generating dags for epoch 0 and 1..."
-    ${GIMN} makedag 0     $d/.ethash &
-    ${GIMN} makedag 30000 $d/.ethash &
+    # echo "Generating dags for epoch 0 and 1..."
+    # ${GIMN} makedag 0     $d/.ethash &
+    # ${GIMN} makedag 30000 $d/.ethash &
     wait
 }
 
