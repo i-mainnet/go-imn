@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"math/big"
 	"path"
 	"sort"
@@ -72,18 +73,19 @@ type metaAdmin struct {
 	etcdPort    int
 	etcdTimeout time.Duration
 
-	lastBlock     int
-	modifiedBlock int
+	lastBlock     int64
+	modifiedBlock int64
 
-	blockInterval               int
-	blocksPer                   int
-	blockReward                 *big.Int
-	gasPrice                    *big.Int
-	maxPriorityFeePerGas        *big.Int
-	gasLimit                    *big.Int
-	gasTarget                   *big.Int
-	baseFeeMaxChangeDenominator int
-	elasticityMultiplier        int
+	blockInterval        int64
+	blocksPer            int64
+	blockReward          *big.Int
+	gasPrice             *big.Int
+	maxPriorityFeePerGas *big.Int
+	maxBaseFee           *big.Int
+	gasLimit             *big.Int
+	gasTarget            *big.Int
+	baseFeeMaxChangeRate int64
+	gasTargetPercentage  int64
 
 	self *metaNode
 
@@ -91,13 +93,32 @@ type metaAdmin struct {
 	nodes map[string]*metaNode
 
 	// # of blocks consecutively mined by this node
-	blocksMined int
+	blocksMined int64
 }
 
 // latest block generated
 type metaWork struct {
 	Height int64       `json:"height"`
 	Hash   common.Hash `json:"hash"`
+}
+
+// block build parameters for caching
+type blockBuildParameters struct {
+	height               uint64
+	blockInterval        int64
+	maxBaseFee           *big.Int
+	gasLimit             *big.Int
+	baseFeeMaxChangeRate int64
+	gasTargetPercentage  int64
+}
+
+// reward related parameters
+type rewardParameters struct {
+	rewardAmount                   *big.Int
+	staker, ecoSystem, maintenance *common.Address
+	members                        []*metaMember
+	distributionMethod             []*big.Int
+	blocksPer                      int64
 }
 
 var (
@@ -114,6 +135,10 @@ var (
 
 	etcdCompactFrequency = int64(100)
 	etcdCompactWindow    = int64(100)
+
+	// cached block build parameters
+	blockBuildParamsLock = &sync.Mutex{}
+	blockBuildParams     *blockBuildParameters
 )
 
 func (n *metaNode) eq(m *metaNode) bool {
@@ -166,6 +191,24 @@ func (ma *metaAdmin) getGenesisInfo() (string, common.Address, error) {
 	return nodeId, block.Coinbase, nil
 }
 
+func (ma *metaAdmin) getRegistryAddress(ctx context.Context, cli *ethclient.Client, registryAbi abi.ABI, height *big.Int) (*common.Address, error) {
+	contract := &metclient.RemoteContract{
+		Cli: cli,
+		Abi: registryAbi,
+	}
+	for i := uint64(0); i < 10; i++ {
+		addr := crypto.CreateAddress(ma.bootAccount, i)
+		contract.To = &addr
+
+		var v *big.Int
+		err := metclient.CallContract(ctx, contract, "magic", nil, &v, height)
+		if err == nil && v.Cmp(magic) == 0 {
+			return &addr, nil
+		}
+	}
+	return nil, metaminer.ErrNotInitialized
+}
+
 // it should be the first transaction of the coinbase of the genesis block
 func (ma *metaAdmin) getAdminAddresses() (registry, gov, staking, envStorage *common.Address, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -179,24 +222,11 @@ func (ma *metaAdmin) getAdminAddresses() (registry, gov, staking, envStorage *co
 	if ma.registry != nil && ma.registry.To != nil {
 		registry = ma.registry.To
 	} else {
-		for i := uint64(0); i < 10; i++ {
-			addr := crypto.CreateAddress(ma.bootAccount, i)
-			contract.To = &addr
-
-			var v *big.Int
-			err = metclient.CallContract(ctx, contract, "magic", nil, &v, nil)
-			if err == nil && v.Cmp(magic) == 0 {
-				registry = &addr
-				break
-			}
-		}
-	}
-
-	if registry == nil {
-		if err == nil {
+		registry, err = ma.getRegistryAddress(ctx, ma.cli, ma.registry.Abi, nil)
+		if err != nil {
 			err = ethereum.NotFound
+			return
 		}
-		return
 	}
 	contract.To = registry
 
@@ -226,37 +256,63 @@ func (ma *metaAdmin) getAdminAddresses() (registry, gov, staking, envStorage *co
 	return
 }
 
-func (ma *metaAdmin) getInt(ctx context.Context, contract *metclient.RemoteContract, block *big.Int, name string) (int, error) {
+func (ma *metaAdmin) getInt(ctx context.Context, contract *metclient.RemoteContract, block *big.Int, name string) (int64, error) {
 	var v *big.Int
 	err := metclient.CallContract(ctx, contract, name, nil, &v, block)
 	if err != nil {
 		return 0, err
 	} else {
-		return int(v.Int64()), nil
+		return v.Int64(), nil
 	}
 }
 
-func (ma *metaAdmin) getEnvStorageContract(ctx context.Context, height *big.Int) (*metclient.RemoteContract, error) {
-	if ma.registry == nil || ma.registry.To == nil {
-		return nil, metaminer.ErrNotInitialized
+// TODO: error handling
+func (ma *metaAdmin) getRegGovEnvContracts(ctx context.Context, height *big.Int) (reg, gov, env *metclient.RemoteContract, err error) {
+	if ma.registry == nil {
+		err = metaminer.ErrNotInitialized
+		return
 	}
-	reg := &metclient.RemoteContract{
+	reg = &metclient.RemoteContract{
 		Cli: ma.cli,
 		Abi: ma.registry.Abi,
-		To:  ma.registry.To,
 	}
-	name := metclient.ToBytes32("EnvStorage")
-	input := []interface{}{name}
-	var addr *common.Address
-	if err := metclient.CallContract(ctx, reg, "getContractAddress", input, &addr, height); err != nil {
-		return nil, err
-	}
-	env := &metclient.RemoteContract{
+	env = &metclient.RemoteContract{
 		Cli: ma.cli,
 		Abi: ma.envStorage.Abi,
-		To:  addr,
 	}
-	return env, nil
+	gov = &metclient.RemoteContract{
+		Cli: ma.cli,
+		Abi: ma.gov.Abi,
+	}
+	if ma.registry.To != nil {
+		reg.To = ma.registry.To
+	} else {
+		var addr *common.Address
+		if addr, err = ma.getRegistryAddress(ctx, ma.cli, reg.Abi, height); err != nil {
+			err = metaminer.ErrNotInitialized
+			return
+		}
+		reg.To = addr
+	}
+
+	var addr common.Address
+	input := []interface{}{metclient.ToBytes32("GovernanceContract")}
+	if err = metclient.CallContract(ctx, reg, "getContractAddress", input, &addr, height); err != nil {
+		err = metaminer.ErrNotInitialized
+		return
+	}
+	gov.To = &common.Address{}
+	gov.To.SetBytes(addr.Bytes())
+
+	input = []interface{}{metclient.ToBytes32("EnvStorage")}
+	if err = metclient.CallContract(ctx, reg, "getContractAddress", input, &addr, height); err != nil {
+		err = metaminer.ErrNotInitialized
+		return
+	}
+	env.To = &common.Address{}
+	env.To.SetBytes(addr.Bytes())
+
+	return
 }
 
 // returns []*metaNode from map[string]*metaNode
@@ -278,7 +334,7 @@ func (ma *metaAdmin) getNodes() []*metaNode {
 // 3. nodes []*metaNode: copies of map[string]*metaNode, not references,
 //   sorted by id, i.e. mining order
 // 'locked' indicates whether ma.lock is held by the caller or not
-func (ma *metaAdmin) getMinerNodes(height int, locked bool) (*metaNode, *metaNode, []*metaNode) {
+func (ma *metaAdmin) getMinerNodes(height int64, locked bool) (*metaNode, *metaNode, []*metaNode) {
 	var nodes []*metaNode
 	if !locked {
 		ma.lock.Lock()
@@ -309,7 +365,7 @@ func (ma *metaAdmin) getMinerNodes(height int, locked bool) (*metaNode, *metaNod
 
 	_, leaderNode := ma.etcdLeader(locked)
 	var miner, next *metaNode
-	ix := height / admin.blocksPer % len(nodes)
+	ix := int(height/admin.blocksPer) % len(nodes)
 	i := ix
 	for j := 0; j < len(nodes); j++ {
 		if miner != nil && next != nil {
@@ -336,13 +392,13 @@ func (ma *metaAdmin) getMetaNodes(ctx context.Context, block *big.Int) ([]*metaN
 		addr            common.Address
 		name, enode, ip []byte
 		port            *big.Int
-		count           int
+		count           int64
 		input, output   []interface{}
 		err             error
 	)
 
 	count, err = ma.getInt(ctx, ma.gov, block, "getNodeLength")
-	for i := 1; i <= count; i++ {
+	for i := int64(1); i <= count; i++ {
 		input = []interface{}{big.NewInt(int64(i))}
 		output = []interface{}{&name, &enode, &ip, &port}
 		if err = metclient.CallContract(ctx, ma.gov, "getNode", input, &output, block); err != nil {
@@ -373,10 +429,75 @@ func (ma *metaAdmin) getMetaNodes(ctx context.Context, block *big.Int) ([]*metaN
 	return nodes, err
 }
 
+func (ma *metaAdmin) getRewardParams(ctx context.Context, height *big.Int) (*rewardParameters, error) {
+	rp := &rewardParameters{}
+	reg, gov, env, err := ma.getRegGovEnvContracts(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = metclient.CallContract(ctx, env, "getBlockRewardAmount", nil, &rp.rewardAmount, height); err != nil {
+		return nil, err
+	}
+
+	rp.distributionMethod = make([]*big.Int, 4, 4)
+	if err = metclient.CallContract(ctx, env, "getBlockRewardDistributionMethod", nil, &rp.distributionMethod, height); err != nil {
+		return nil, err
+	}
+
+	var addr common.Address
+	input := []interface{}{metclient.ToBytes32("StakingReward")}
+	if err = metclient.CallContract(ctx, reg, "getContractAddress", input, &addr, height); err != nil {
+		return nil, err
+	}
+	rp.staker = &common.Address{}
+	rp.staker.SetBytes(addr.Bytes())
+
+	input = []interface{}{metclient.ToBytes32("Ecosystem")}
+	if err = metclient.CallContract(ctx, reg, "getContractAddress", input, &addr, height); err != nil {
+		return nil, err
+	}
+	rp.ecoSystem = &common.Address{}
+	rp.ecoSystem.SetBytes(addr.Bytes())
+
+	input = []interface{}{metclient.ToBytes32("Maintenance")}
+	if err = metclient.CallContract(ctx, reg, "getContractAddress", input, &addr, height); err != nil {
+		return nil, err
+	}
+	rp.maintenance = &common.Address{}
+	rp.maintenance.SetBytes(addr.Bytes())
+
+	rp.blocksPer, err = ma.getInt(ctx, env, height, "getBlocksPer")
+	if err != nil {
+		return nil, err
+	}
+
+	if count, err := ma.getInt(ctx, gov, height, "getMemberLength"); err != nil {
+		return nil, err
+	} else {
+		for i := int64(1); i <= count; i++ {
+			input = []interface{}{big.NewInt(int64(i))}
+			if err = metclient.CallContract(ctx, gov, "getReward", input, &addr, height); err != nil {
+				return nil, err
+			}
+			input = []interface{}{addr}
+			// NB. no staking consideration
+			// if err = metclient.CallContract(ctx, staking, "lockedBalanceOf", input, &stake, height); err != nil {
+			//	return nil, err
+			// }
+			rp.members = append(rp.members, &metaMember{
+				Addr: addr,
+			})
+		}
+	}
+
+	return rp, nil
+}
+
 func (ma *metaAdmin) getRewardAccounts(ctx context.Context, block *big.Int) (rewardPoolAccount, maintenanceAccount *common.Address, members []*metaMember, err error) {
 	var (
 		addr  common.Address
-		count int
+		count int64
 		stake *big.Int
 		input []interface{}
 	)
@@ -405,7 +526,7 @@ func (ma *metaAdmin) getRewardAccounts(ctx context.Context, block *big.Int) (rew
 		return
 	}
 
-	for i := 1; i <= count; i++ {
+	for i := int64(1); i <= count; i++ {
 		input = []interface{}{big.NewInt(int64(i))}
 		err = metclient.CallContract(ctx, ma.gov, "getReward", input,
 			&addr, block)
@@ -430,11 +551,12 @@ func (ma *metaAdmin) getRewardAccounts(ctx context.Context, block *big.Int) (rew
 
 // temporary internal structure to collect data from governance contracts
 type govdata struct {
-	blockNum, modifiedBlock                                          int
-	blockInterval, blocksPer, maxIdleBlockInterval                   int
-	blockReward, gasPrice, maxPriorityFeePerGas, gasLimit, gasTarget *big.Int
-	baseFeeMaxChangeDenominator, elasticityMultiplier                int
-	nodes, addedNodes, updatedNodes, deletedNodes                    []*metaNode
+	blockNum, modifiedBlock                        int64
+	blockInterval, blocksPer, maxIdleBlockInterval int64
+	blockReward, gasPrice, maxPriorityFeePerGas    *big.Int
+	maxBaseFee, gasLimit                           *big.Int
+	baseFeeMaxChangeRate, gasTargetPercentage      int64
+	nodes, addedNodes, updatedNodes, deletedNodes  []*metaNode
 }
 
 func (ma *metaAdmin) getGovData(refresh bool) (data *govdata, err error) {
@@ -447,7 +569,7 @@ func (ma *metaAdmin) getGovData(refresh bool) (data *govdata, err error) {
 	if err != nil {
 		return
 	}
-	data.blockNum = int(block.Number.Int64())
+	data.blockNum = block.Number.Int64()
 	if !refresh && data.blockNum <= ma.lastBlock {
 		return
 	}
@@ -476,7 +598,7 @@ func (ma *metaAdmin) getGovData(refresh bool) (data *govdata, err error) {
 	data.maxIdleBlockInterval, err = ma.getInt(ctx, ma.envStorage, block.Number, "getMaxIdleBlockInterval")
 	if err != nil {
 		// TODO: ignore this error for now
-		data.maxIdleBlockInterval = int(params.MaxIdleBlockInterval)
+		data.maxIdleBlockInterval = int64(params.MaxIdleBlockInterval)
 		//return
 	}
 	err = metclient.CallContract(ctx, ma.envStorage, "getBlockRewardAmount", nil, &data.blockReward, block.Number)
@@ -497,11 +619,14 @@ func (ma *metaAdmin) getGovData(refresh bool) (data *govdata, err error) {
 		return
 	}
 	data.gasLimit = gasLimitAndBaseFee[0]
-	data.baseFeeMaxChangeDenominator = int(gasLimitAndBaseFee[1].Int64())
-	data.elasticityMultiplier = int(gasLimitAndBaseFee[2].Int64())
+	data.baseFeeMaxChangeRate = gasLimitAndBaseFee[1].Int64()
+	data.gasTargetPercentage = gasLimitAndBaseFee[2].Int64()
 
-	// TODO: should come from the governance
-	data.gasTarget = big.NewInt(21000 * 1500)
+	// err = metclient.CallContract(ctx, ma.envStorage, "getMaxBaseFee", nil, &data.maxBaseFee, block.Number)
+	// if err != nil {
+	// 	return
+	// }
+	data.maxBaseFee = big.NewInt(500 * params.GWei)
 
 	data.nodes, err = ma.getMetaNodes(ctx, block.Number)
 	if err != nil {
@@ -666,10 +791,10 @@ func (ma *metaAdmin) update() {
 		ma.blockReward = data.blockReward
 		ma.gasPrice = data.gasPrice
 		ma.maxPriorityFeePerGas = data.maxPriorityFeePerGas
+		ma.maxBaseFee = data.maxBaseFee
 		ma.gasLimit = data.gasLimit
-		ma.gasTarget = data.gasTarget
-		ma.baseFeeMaxChangeDenominator = data.baseFeeMaxChangeDenominator
-		ma.elasticityMultiplier = data.elasticityMultiplier
+		ma.baseFeeMaxChangeRate = data.baseFeeMaxChangeRate
+		ma.gasTargetPercentage = data.gasTargetPercentage
 
 		_nodes := map[string]*metaNode{}
 		for _, i := range data.nodes {
@@ -835,37 +960,7 @@ type reward struct {
 	Reward *big.Int       `json:"reward"`
 }
 
-/*
-// to get around 64 bit boundary. big.Float didn't help here.
-func distributeRewardsOld(six int, members []*metaMember, rewards []reward, amount int64) {
-	n := len(members)
-	var u int64
-	for i := 0; i < n; i++ {
-		rewards[i].Addr = members[i].Addr
-		u += int64(members[i].Stake.Int64())
-	}
-
-	var h, l uint64 = uint64(amount) >> 32, uint64(amount) & uint64(0x0FFFFFFFF)
-	var hd, ld float64 = float64(h) / float64(u), float64(l) / float64(u) // slopes
-	var hv, lv, vi float64 = 0, 0, 0
-	var s, vj uint64
-
-	for i := 0; i < n; i++ {
-		s = uint64(members[six].Stake.Int64())
-		vi = hv + hd*float64(s)
-		vj = uint64(math.Floor(vi+.5)-math.Floor(hv+.5)) << 32
-		hv = vi
-		vi = lv + ld*float64(s)
-		vj += uint64(math.Floor(vi+.5) - math.Floor(lv+.5))
-		lv = vi
-		rewards[six].Reward = vj
-
-		six = (six + 1) % n
-	}
-}
-*/
-
-func distributeRewards(six int, rewardPoolAccount, maintenanceAccount *common.Address, members []*metaMember, rewards []reward, amount *big.Int) {
+func distributeRewards_old(six int, rewardPoolAccount, maintenanceAccount *common.Address, members []*metaMember, rewards []reward, amount *big.Int) {
 	n := len(members)
 
 	v0 := big.NewInt(0)
@@ -935,7 +1030,7 @@ func distributeRewards(six int, rewardPoolAccount, maintenanceAccount *common.Ad
 	}
 }
 
-func (ma *metaAdmin) calculateRewards(num, blockReward, fees *big.Int, addBalance func(common.Address, *big.Int)) (coinbase *common.Address, rewards []byte, err error) {
+func (ma *metaAdmin) calculateRewards_old(num, blockReward, fees *big.Int, addBalance func(common.Address, *big.Int)) (coinbase *common.Address, rewards []byte, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -952,7 +1047,7 @@ func (ma *metaAdmin) calculateRewards(num, blockReward, fees *big.Int, addBalanc
 
 	// determine coinbase
 	if len(members) > 0 {
-		mix := int(num.Int64()) / ma.blocksPer % len(members)
+		mix := int(num.Int64()/ma.blocksPer) % len(members)
 		coinbase = &common.Address{}
 		coinbase.SetBytes(members[mix].Addr.Bytes())
 	}
@@ -971,7 +1066,7 @@ func (ma *metaAdmin) calculateRewards(num, blockReward, fees *big.Int, addBalanc
 	}
 
 	rr := make([]reward, n)
-	distributeRewards(six, rewardPoolAccount, maintenanceAccount, members, rr,
+	distributeRewards_old(six, rewardPoolAccount, maintenanceAccount, members, rr,
 		new(big.Int).Add(blockReward, fees))
 
 	if addBalance != nil {
@@ -1007,6 +1102,111 @@ func (ma *metaAdmin) verifyRewards(r1, r2 []byte) error {
 	}
 
 	return nil
+}
+
+// new rewards
+// TODO: needs to check errors or inconsistencies
+//   - incorrect parametesr, i.e. distribution methods values don't add up to 1000
+//   - missing addresses
+//   - etc.
+func distributeRewards(height *big.Int, rp *rewardParameters, fees *big.Int) ([]reward, error) {
+	dm := new(big.Int)
+	for i := 0; i < len(rp.distributionMethod); i++ {
+		dm.Add(dm, rp.distributionMethod[i])
+	}
+	if dm.Int64() != 1000 {
+		return nil, metaminer.ErrNotInitialized
+	}
+
+	v1000 := big.NewInt(1000)
+	minerAmount := new(big.Int).Set(rp.rewardAmount)
+	minerAmount.Div(minerAmount.Mul(minerAmount, rp.distributionMethod[0]), v1000)
+	stakerAmount := new(big.Int).Set(rp.rewardAmount)
+	stakerAmount.Div(stakerAmount.Mul(stakerAmount, rp.distributionMethod[1]), v1000)
+	ecoSystemAmount := new(big.Int).Set(rp.rewardAmount)
+	ecoSystemAmount.Div(ecoSystemAmount.Mul(ecoSystemAmount, rp.distributionMethod[2]), v1000)
+	// the rest goes to maintenance
+	maintenanceAmount := new(big.Int).Set(rp.rewardAmount)
+	maintenanceAmount.Sub(maintenanceAmount, minerAmount)
+	maintenanceAmount.Sub(maintenanceAmount, stakerAmount)
+	maintenanceAmount.Sub(maintenanceAmount, ecoSystemAmount)
+
+	// fees go to maintenance
+	maintenanceAmount.Add(maintenanceAmount, fees)
+
+	var rewards []reward
+	if n := len(rp.members); n > 0 {
+		v0, v1 := big.NewInt(0), big.NewInt(1)
+		vn := big.NewInt(int64(n))
+		b := new(big.Int).Set(minerAmount)
+		d := new(big.Int)
+		d.Div(b, vn)
+		for i := 0; i < n; i++ {
+			rewards = append(rewards, reward{
+				Addr:   rp.members[i].Addr,
+				Reward: new(big.Int).Set(d),
+			})
+		}
+		d.Mul(d, vn)
+		b.Sub(b, d)
+		for i, ix := 0, height.Int64()%int64(n); b.Cmp(v0) > 0; i, ix = i+1, (ix+1)%int64(n) {
+			rewards[ix].Reward.Add(rewards[ix].Reward, v1)
+			b.Sub(b, v1)
+		}
+	}
+	rewards = append(rewards, reward{
+		Addr:   *rp.staker,
+		Reward: stakerAmount,
+	})
+	rewards = append(rewards, reward{
+		Addr:   *rp.ecoSystem,
+		Reward: ecoSystemAmount,
+	})
+	rewards = append(rewards, reward{
+		Addr:   *rp.maintenance,
+		Reward: maintenanceAmount,
+	})
+	return rewards, nil
+}
+
+func (ma *metaAdmin) calculateRewards(num, blockReward, fees *big.Int, addBalance func(common.Address, *big.Int)) (coinbase *common.Address, rewards []byte, err error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rp, err := ma.getRewardParams(ctx, big.NewInt(num.Int64()-1))
+	if err != nil {
+		// all goes to the coinbase
+		err = metaminer.ErrNotInitialized
+		return
+	}
+
+	// TODO: need more basic checks
+	if rp.staker == nil && rp.ecoSystem == nil && rp.maintenance == nil && len(rp.members) == 0 {
+		err = metaminer.ErrNotInitialized
+		return
+	}
+
+	// determine coinbase
+	if len(rp.members) > 0 {
+		mix := int(num.Int64()/ma.blocksPer) % len(rp.members)
+		coinbase = &common.Address{}
+		coinbase.SetBytes(rp.members[mix].Addr.Bytes())
+	}
+
+	rr, errr := distributeRewards(num, rp, fees)
+	if errr != nil {
+		err = errr
+		return
+	}
+
+	if addBalance != nil {
+		for _, i := range rr {
+			addBalance(i.Addr, i.Reward)
+		}
+	}
+
+	rewards, err = json.Marshal(rr)
+	return
 }
 
 func calculateRewards(num, blockReward, fees *big.Int, addBalance func(common.Address, *big.Int)) (*common.Address, []byte, error) {
@@ -1175,10 +1375,10 @@ func LogBlock(height int64, hash common.Hash) {
 	admin.blocksMined++
 	height++
 	if admin.blocksMined >= admin.blocksPer &&
-		int(height)%admin.blocksPer == 0 {
+		height%admin.blocksPer == 0 {
 		// time to yield leader role
 
-		_, next, _ := admin.getMinerNodes(int(height), true)
+		_, next, _ := admin.getMinerNodes(height, true)
 		if next.Id == admin.self.Id {
 			log.Debug("Metadium - yield to self", "mined", admin.blocksMined,
 				"new miner", "self")
@@ -1219,12 +1419,29 @@ func suggestGasPrice() *big.Int {
 	return fee
 }
 
-func getBlockBuildParameters(height *big.Int) (blockInterval, baseFeeMaxChangeDenominator, baseFeeElasticityMultiplier int, gasLimit, gasTarget *big.Int, err error) {
+func getBlockBuildParameters(height *big.Int) (blockInterval int64, maxBaseFee, gasLimit *big.Int, baseFeeMaxChangeRate, gasTargetPercentage int64, err error) {
+	err = metaminer.ErrNotInitialized
+
+	blockBuildParamsLock.Lock()
+	if blockBuildParams != nil && blockBuildParams.height == height.Uint64() {
+		// use chached
+		blockInterval = blockBuildParams.blockInterval
+		maxBaseFee = blockBuildParams.maxBaseFee
+		gasLimit = blockBuildParams.gasLimit
+		baseFeeMaxChangeRate = blockBuildParams.baseFeeMaxChangeRate
+		gasTargetPercentage = blockBuildParams.gasTargetPercentage
+		blockBuildParamsLock.Unlock()
+		err = nil
+		return
+	}
+	blockBuildParamsLock.Unlock()
+
 	// default values
-	blockInterval = 1
-	baseFeeMaxChangeDenominator, baseFeeElasticityMultiplier = 4, 4
-	gasLimit = big.NewInt(21000 * 5000)
-	gasTarget = big.NewInt(21000 * 1500)
+	blockInterval = 15
+	maxBaseFee = big.NewInt(0)
+	gasLimit = big.NewInt(0)
+	baseFeeMaxChangeRate = 0
+	gasTargetPercentage = 100
 
 	if admin == nil {
 		return
@@ -1233,23 +1450,44 @@ func getBlockBuildParameters(height *big.Int) (blockInterval, baseFeeMaxChangeDe
 	defer cancel()
 
 	var env *metclient.RemoteContract
-	if env, err = admin.getEnvStorageContract(ctx, height); err != nil {
+	if _, _, env, err = admin.getRegGovEnvContracts(ctx, height); err != nil {
+		err = metaminer.ErrNotInitialized
 		return
 	}
 	var v *big.Int
 	if err = metclient.CallContract(ctx, env, "getBlockCreationTime", nil, &v, height); err != nil {
+		err = metaminer.ErrNotInitialized
 		return
 	}
-	blockInterval = int(v.Int64())
+	blockInterval = v.Int64()
 
 	gasLimitAndBaseFee := make([]*big.Int, 3, 3)
-	err = metclient.CallContract(ctx, env, "getGasLimitAndBaseFee", nil, &gasLimitAndBaseFee, height)
-	if err != nil {
+	if err = metclient.CallContract(ctx, env, "getGasLimitAndBaseFee", nil, &gasLimitAndBaseFee, height); err != nil {
+		err = metaminer.ErrNotInitialized
 		return
 	}
 	gasLimit = gasLimitAndBaseFee[0]
-	baseFeeMaxChangeDenominator = int(gasLimitAndBaseFee[1].Int64())
-	baseFeeElasticityMultiplier = int(gasLimitAndBaseFee[2].Int64())
+	baseFeeMaxChangeRate = gasLimitAndBaseFee[1].Int64()
+	gasTargetPercentage = gasLimitAndBaseFee[2].Int64()
+
+	// if err = metclient.CallContract(ctx, env, "getMaxBaseFee", nil, &maxBaseFee, height); err != nil {
+	//	err = metaminer.ErrNotInitialized
+	//	return
+	// }
+	maxBaseFee = big.NewInt(500 * params.GWei)
+
+	// cache it
+	blockBuildParamsLock.Lock()
+	blockBuildParams = &blockBuildParameters{
+		height:               height.Uint64(),
+		blockInterval:        blockInterval,
+		maxBaseFee:           maxBaseFee,
+		gasLimit:             gasLimit,
+		baseFeeMaxChangeRate: baseFeeMaxChangeRate,
+		gasTargetPercentage:  gasTargetPercentage,
+	}
+	blockBuildParamsLock.Unlock()
+	err = nil
 	return
 }
 
@@ -1275,7 +1513,7 @@ func (ma *metaAdmin) miners() string {
 	if err != nil {
 		return ""
 	}
-	height := int(block.Number.Int64())
+	height := block.Number.Int64()
 
 	_, _, nodes := ma.getMinerNodes(height+1, false)
 	return ma.toMiningPeers(nodes)
@@ -1295,25 +1533,25 @@ func Info() interface{} {
 		})
 
 		info := &map[string]interface{}{
-			"consensus":                   params.ConsensusMethod,
-			"registry":                    admin.registry.To,
-			"governance":                  admin.gov.To,
-			"staking":                     admin.staking.To,
-			"modifiedblock":               admin.modifiedBlock,
-			"blocksPer":                   admin.blocksPer,
-			"blockInterval":               admin.blockInterval,
-			"blockReward":                 admin.blockReward,
-			"gasPrice":                    admin.gasPrice,
-			"maxPriorityFeePerGas":        admin.maxPriorityFeePerGas,
-			"blockGasLimit":               admin.gasLimit,
-			"blockGasTarget":              admin.gasTarget,
-			"baseFeeMaxChangeDenominator": admin.baseFeeMaxChangeDenominator,
-			"baseFeeElasticityMultiplier": admin.elasticityMultiplier,
-			"self":                        self,
-			"nodes":                       nodes,
-			"miners":                      admin.miners(),
-			"etcd":                        admin.etcdInfo(),
-			"maxIdle":                     params.MaxIdleBlockInterval,
+			"consensus":            params.ConsensusMethod,
+			"registry":             admin.registry.To,
+			"governance":           admin.gov.To,
+			"staking":              admin.staking.To,
+			"modifiedblock":        admin.modifiedBlock,
+			"blocksPer":            admin.blocksPer,
+			"blockInterval":        admin.blockInterval,
+			"blockReward":          admin.blockReward,
+			"gasPrice":             admin.gasPrice,
+			"maxPriorityFeePerGas": admin.maxPriorityFeePerGas,
+			"blockGasLimit":        admin.gasLimit,
+			"maxBaseFee":           admin.maxBaseFee,
+			"baseFeeMaxChangeRate": admin.baseFeeMaxChangeRate,
+			"gasTargetPercentage":  admin.gasTargetPercentage,
+			"self":                 self,
+			"nodes":                nodes,
+			"miners":               admin.miners(),
+			"etcd":                 admin.etcdInfo(),
+			"maxIdle":              params.MaxIdleBlockInterval,
 		}
 		return info
 	}
@@ -1331,7 +1569,7 @@ func getMinerStatus() *metaapi.MetadiumMinerStatus {
 	if err != nil {
 		return nil
 	}
-	height := int(header.Number.Int64())
+	height := header.Number.Int64()
 
 	_, _, nodes := admin.getMinerNodes(height+1, false)
 	miningPeers := admin.toMiningPeers(nodes)

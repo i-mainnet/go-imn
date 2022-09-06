@@ -23,6 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
+	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -30,10 +31,14 @@ import (
 // - gas limit check
 // - basefee check
 func VerifyEip1559Header(config *params.ChainConfig, parent, header *types.Header) error {
+	_, _, _, _, gasTargetPercentage, err := metaminer.GetBlockBuildParameters(parent.Number)
+	if err == metaminer.ErrNotInitialized {
+		return nil
+	}
 	// Verify that the gas limit remains within allowed bounds
 	parentGasLimit := parent.GasLimit
 	if !config.IsLondon(parent.Number) {
-		parentGasLimit = parent.GasLimit * params.ElasticityMultiplier
+		parentGasLimit = parent.GasLimit * uint64(gasTargetPercentage) / 100
 	}
 	if err := VerifyGaslimit(parentGasLimit, header.GasLimit); err != nil {
 		return err
@@ -57,11 +62,15 @@ func CalcBaseFee(config *params.ChainConfig, parent *types.Header) *big.Int {
 	if !config.IsLondon(parent.Number) {
 		return new(big.Int).SetUint64(params.InitialBaseFee)
 	}
-
+	// NB: in Metadium both elasticityMultiplier & baseFeeChangeDenominator are percentage numbers
+	_, maxBaseFee, _, baseFeeMaxChangeRate, gasTargetPercentage, err := metaminer.GetBlockBuildParameters(parent.Number)
+	if err == metaminer.ErrNotInitialized {
+		return new(big.Int).Set(parent.BaseFee)
+	}
 	var (
-		parentGasTarget          = parent.GasLimit / params.ElasticityMultiplier
-		parentGasTargetBig       = new(big.Int).SetUint64(parentGasTarget)
-		baseFeeChangeDenominator = new(big.Int).SetUint64(params.BaseFeeChangeDenominator)
+		parentGasTarget    = parent.GasLimit * uint64(gasTargetPercentage) / 100
+		parentGasTargetBig = new(big.Int).SetUint64(parentGasTarget)
+		baseFeeChangeRate  = new(big.Int).SetInt64(baseFeeMaxChangeRate)
 	)
 	// If the parent gasUsed is the same as the target, the baseFee remains unchanged.
 	if parent.GasUsed == parentGasTarget {
@@ -73,21 +82,22 @@ func CalcBaseFee(config *params.ChainConfig, parent *types.Header) *big.Int {
 		x := new(big.Int).Mul(parent.BaseFee, gasUsedDelta)
 		y := x.Div(x, parentGasTargetBig)
 		baseFeeDelta := math.BigMax(
-			x.Div(y, baseFeeChangeDenominator),
+			x.Div(y.Mul(y, baseFeeChangeRate), big.NewInt(100)),
 			common.Big1,
 		)
-
-		return x.Add(parent.BaseFee, baseFeeDelta)
+		return math.BigMin(x.Add(parent.BaseFee, baseFeeDelta), maxBaseFee)
 	} else {
 		// Otherwise if the parent block used less gas than its target, the baseFee should decrease.
 		gasUsedDelta := new(big.Int).SetUint64(parentGasTarget - parent.GasUsed)
 		x := new(big.Int).Mul(parent.BaseFee, gasUsedDelta)
 		y := x.Div(x, parentGasTargetBig)
-		baseFeeDelta := x.Div(y, baseFeeChangeDenominator)
-
+		baseFeeDelta := x.Div(y.Mul(y, baseFeeChangeRate), big.NewInt(100))
+		if baseFeeDelta.Cmp(common.Big0) == 0 && parent.BaseFee.Cmp(common.Big1) > 0 {
+			baseFeeDelta.SetUint64(1)
+		}
 		return math.BigMax(
 			x.Sub(parent.BaseFee, baseFeeDelta),
-			common.Big0,
+			common.Big1,
 		)
 	}
 }
