@@ -1521,7 +1521,7 @@ func (w *worker) timeIt(blockInterval int64) (timestamp uint64, till time.Time) 
 
 	ahead := 0
 	offset, height, _, dt := check(1)
-	log.Debug("IMN time-it", "round", 1, "offset", offset, "height", height, "dt", dt)
+	log.Debug("time-it", "round", 1, "offset", offset, "height", height, "dt", dt)
 	if offset >= 0 {
 		if offset > 0 {
 			ahead++
@@ -1529,7 +1529,7 @@ func (w *worker) timeIt(blockInterval int64) (timestamp uint64, till time.Time) 
 		adjBlocks := params.BlockTimeAdjBlocks
 		for i := int64(0); i < params.BlockTimeAdjMultiple; i++ {
 			offset, height, _, dt = check(adjBlocks)
-			log.Debug("imn time-it", "round", adjBlocks, "offset", offset, "height", height, "dt", dt)
+			log.Debug("time-it", "round", adjBlocks, "offset", offset, "height", height, "dt", dt)
 			if offset < 0 {
 				break
 			} else if offset > 0 {
@@ -1553,7 +1553,7 @@ func (w *worker) timeIt(blockInterval int64) (timestamp uint64, till time.Time) 
 			tms = (nowInSeconds + 1) * 1000
 		}
 		till = time.Unix(tms/1e3, (tms%1e3)*1e6)
-		log.Debug("IMN time-it", "behind", timestamp, "duration", tms-nowInMilliSeconds)
+		log.Debug("time-it", "behind", timestamp, "duration", tms-nowInMilliSeconds)
 	case 1: // ahead, i.e. too many blocks, need to slow down
 		tms := nowInMilliSeconds + blockInterval*1000 + params.BlockMinBuildTime
 		if tms/1000 > nowInSeconds+blockInterval {
@@ -1561,7 +1561,7 @@ func (w *worker) timeIt(blockInterval int64) (timestamp uint64, till time.Time) 
 			tms = (nowInSeconds+blockInterval+1)*1000 - params.BlockTrailTime
 		}
 		till = time.Unix(tms/1e3, (tms%1e3)*1e6)
-		log.Debug("IMN time-it", "ahead", timestamp, "duration", tms-nowInMilliSeconds)
+		log.Debug("time-it", "ahead", timestamp, "duration", tms-nowInMilliSeconds)
 	default: // on schedule
 		tms := nowInMilliSeconds + blockInterval*1000 - params.BlockTrailTime
 		if tms/1000 > nowInSeconds+1 {
@@ -1569,7 +1569,7 @@ func (w *worker) timeIt(blockInterval int64) (timestamp uint64, till time.Time) 
 			tms = (nowInSeconds+2)*1000 - params.BlockTrailTime
 		}
 		till = time.Unix(tms/1e3, (tms%1e3)*1e6) // time.UnixMilli() is av supported until
-		log.Debug("IMN time-it", "on-schedule", timestamp, "duration", tms-nowInMilliSeconds)
+		log.Debug("time-it", "on-schedule", timestamp, "duration", tms-nowInMilliSeconds)
 	}
 	return timestamp, till
 }
