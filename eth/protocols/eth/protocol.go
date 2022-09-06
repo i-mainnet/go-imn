@@ -25,7 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/forkid"
 	"github.com/ethereum/go-ethereum/core/types"
-	metaapi "github.com/ethereum/go-ethereum/metadium/api"
+	imnapi "github.com/ethereum/go-ethereum/imn/api"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -70,7 +70,7 @@ const (
 	GetPooledTransactionsMsg      = 0x09
 	PooledTransactionsMsg         = 0x0a
 
-	// Added by Metadium, meta/64
+	// Added by IMN, imn/64
 	GetPendingTxsMsg  = 0x11
 	GetStatusExMsg    = 0x12
 	StatusExMsg       = 0x13
@@ -353,7 +353,7 @@ type GetStatusExPacket66 struct {
 }
 
 // StatusExPacket is the network packet for extended status of a node
-type StatusExPacket metaapi.MetadiumMinerStatus
+type StatusExPacket imnapi.IMNMinerStatus
 
 // StatusExPacket66 is the eth/66 form of StatusExPacket
 type StatusExPacket66 struct {

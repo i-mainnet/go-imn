@@ -1,0 +1,34 @@
+version: "3"
+services:
+  imn1:
+    container_name: imn1
+    hostname: imn1
+    stdin_open: true
+    tty: true
+    build: .
+    image: imn/multinode-demo:latest
+    volumes:
+      - ".:/opt"
+    entrypoint: ["/usr/local/imn/bin/gimn-demo.sh", "start-leader", "imn1", "imn2", "imn3"]
+  imn2:
+    container_name: imn2
+    hostname: imn2
+    stdin_open: true
+    tty: true
+    image: imn/multinode-demo:latest
+    depends_on:
+      - imn1
+    volumes:
+      - ".:/opt"
+    entrypoint: ["/usr/local/imn/bin/gimn-demo.sh", "start"]
+  imn3:
+    container_name: imn3
+    hostname: imn3
+    stdin_open: true
+    tty: true
+    image: imn/multinode-demo:latest
+    depends_on:
+      - imn1
+    volumes:
+      - ".:/opt"
+    entrypoint: ["/usr/local/imn/bin/gimn-demo.sh", "start"]

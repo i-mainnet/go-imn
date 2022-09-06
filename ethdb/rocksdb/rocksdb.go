@@ -20,7 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 )
 
-// Metadium: db stats
+// IMN: db stats
 // (reads, read bytes, writes, written bytes, lookups, deletes)
 var (
 	_stats_enabled                                             = false

@@ -26,8 +26,8 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/log"
-	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
@@ -148,9 +148,9 @@ func NewOracle(backend OracleBackend, params Config) *Oracle {
 // necessary to add the basefee to the returned number to fall back to the legacy
 // behavior.
 func (oracle *Oracle) SuggestTipCap(ctx context.Context) (*big.Int, error) {
-	// In metadium, gas price is set by governance contract.
-	if !metaminer.IsPoW() {
-		return metaminer.SuggestGasPrice(), nil
+	// In imn, gas price is set by governance contract.
+	if !imnminer.IsPoW() {
+		return imnminer.SuggestGasPrice(), nil
 	}
 
 	head, _ := oracle.backend.HeaderByNumber(ctx, rpc.LatestBlockNumber)

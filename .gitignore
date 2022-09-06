@@ -52,6 +52,6 @@ profile.cov
 
 vendor/*
 
-# Metadium
-/metadium/admin_abi.go
-/metadium/governance_abi.go
+# IMN
+/imn/admin_abi.go
+/imn/governance_abi.go

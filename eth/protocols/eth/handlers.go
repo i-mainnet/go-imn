@@ -23,8 +23,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/log"
-	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -141,7 +141,7 @@ func handleGetBlockHeaders66(backend Backend, msg Decoder, peer *Peer) error {
 		if len(response) == int(query.GetBlockHeadersPacket.Amount) {
 			return peer.ReplyBlockHeadersRLP(query.RequestId, response)
 		} else {
-			// Metadium: fall back to old behavior
+			// IMN: fall back to old behavior
 			response2 := answerGetBlockHeadersQuery(backend, query.GetBlockHeadersPacket, peer)
 			if len(response2) > len(response) {
 				return peer.ReplyBlockHeaders(query.RequestId, response2)
@@ -810,7 +810,7 @@ func handleTransactionsEx(backend Backend, msg Decoder, peer *Peer) error {
 	}
 	go func() error {
 		signer := types.MakeSigner(backend.Chain().Config(), backend.Chain().CurrentBlock().Number())
-		txs := types.TxExs2Txs(signer, txexs, metaminer.IsPartner(peer.ID()))
+		txs := types.TxExs2Txs(signer, txexs, imnminer.IsPartner(peer.ID()))
 		for i, tx := range txs {
 			// Validate and mark the remote transaction
 			if tx == nil {

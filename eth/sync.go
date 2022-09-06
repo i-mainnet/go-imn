@@ -28,8 +28,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/log"
-	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 )
 
@@ -258,7 +258,7 @@ func (cs *chainSyncer) nextSyncOp() *chainSyncOp {
 	peer := cs.handler.peers.peerWithHighestTD()
 	if peer == nil {
 		return nil
-	} else if metaminer.AmPartner() && !metaminer.IsPartner(peer.ID()) {
+	} else if imnminer.AmPartner() && !imnminer.IsPartner(peer.ID()) {
 		return nil
 	}
 
@@ -275,7 +275,7 @@ func (cs *chainSyncer) peerSyncOp(p *eth.Peer) (*chainSyncOp, error) {
 	if cs.doneCh != nil {
 		// Sync already running
 		return nil, errors.New("sync already in progress")
-	} else if metaminer.AmPartner() && !metaminer.IsPartner(p.ID()) {
+	} else if imnminer.AmPartner() && !imnminer.IsPartner(p.ID()) {
 		return nil, errors.New("not a miner")
 	}
 

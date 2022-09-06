@@ -1,6 +1,6 @@
 // spinlock.go
 
-package metadium
+package imn
 
 import (
 	"runtime"
