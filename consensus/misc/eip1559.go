@@ -31,7 +31,10 @@ import (
 // - gas limit check
 // - basefee check
 func VerifyEip1559Header(config *params.ChainConfig, parent, header *types.Header) error {
-	_, _, elasticityMultiplier, _, _, _ := metaminer.GetBlockBuildParameters(parent.Number)
+	_, _, elasticityMultiplier, _, _, err := metaminer.GetBlockBuildParameters(parent.Number)
+	if err == metaminer.ErrNotInitialized {
+		return nil
+	}
 	// Verify that the gas limit remains within allowed bounds
 	parentGasLimit := parent.GasLimit
 	if !config.IsLondon(parent.Number) {
