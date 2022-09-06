@@ -1,4 +1,4 @@
-// metadium/api/api.go
+// imn/api/api.go
 
 package api
 
@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-type MetadiumMinerStatus struct {
+type IMNMinerStatus struct {
 	NodeName    string `json:"name"`
 	Enode       string `json:"enode"`
 	Id          string `json:"id"`
@@ -31,8 +31,8 @@ var (
 
 	Info func() interface{}
 
-	GetMinerStatus func() *MetadiumMinerStatus
-	GetMiners      func(node string, timeout int) []*MetadiumMinerStatus
+	GetMinerStatus func() *IMNMinerStatus
+	GetMiners      func(node string, timeout int) []*IMNMinerStatus
 
 	EtcdInit         func() error
 	EtcdAddMember    func(name string) (string, error)
@@ -49,7 +49,7 @@ func SetMsgChannel(ch chan interface{}) {
 	msgChannel = ch
 }
 
-func GotStatusEx(status *MetadiumMinerStatus) {
+func GotStatusEx(status *IMNMinerStatus) {
 	msgChannelLock.Lock()
 	defer msgChannelLock.Unlock()
 	if msgChannel != nil {

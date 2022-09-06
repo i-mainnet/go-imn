@@ -1,4 +1,4 @@
-// Copyright 2018 The go-metadium Authors
+// Copyright 2018-2022 The go-metadium / go-imn Authors
 
 package miner
 
@@ -155,14 +155,14 @@ func FeedLeadership() {
 	}
 }
 
-type MetaBlockHead struct {
+type IMNBlockHead struct {
 	Height int64
 	Hash   common.Hash
 }
 
-var blockImportedSink *chan MetaBlockHead
+var blockImportedSink *chan IMNBlockHead
 
-func SubscribeToBlockImported(ch *chan MetaBlockHead) {
+func SubscribeToBlockImported(ch *chan IMNBlockHead) {
 	blockImportedSink = ch
 }
 
@@ -173,11 +173,11 @@ func UnsubscribeToBlockImported() {
 func FeedBlockImported(height int64, hash common.Hash) {
 	if blockImportedSink != nil {
 		select {
-		case *blockImportedSink <- MetaBlockHead{Height: height, Hash: hash}:
+		case *blockImportedSink <- IMNBlockHead{Height: height, Hash: hash}:
 		default:
 			// if full, replace it
 			<-*blockImportedSink
-			*blockImportedSink <- MetaBlockHead{Height: height, Hash: hash}
+			*blockImportedSink <- IMNBlockHead{Height: height, Hash: hash}
 		}
 	}
 }

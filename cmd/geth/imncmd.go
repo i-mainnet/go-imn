@@ -1,4 +1,4 @@
-// metadiumcmd.go
+// imncmd.go
 
 package main
 
@@ -28,21 +28,21 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/metadium/metclient"
+	"github.com/ethereum/go-ethereum/imn/metclient"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"gopkg.in/urfave/cli.v1"
 )
 
-// gmet metadium new-account
+// gmet imn new-account
 var (
-	metadiumCommand = cli.Command{
-		Name:      "metadium",
-		Usage:     "Metadium helper commands",
+	imnCommand = cli.Command{
+		Name:      "imn",
+		Usage:     "IMN helper commands",
 		ArgsUsage: "",
-		Category:  "METADIUM COMMANDS",
+		Category:  "IMN COMMANDS",
 		Description: `
 
-Metadium helper commands, create a new account, a new node id, a new genesis file, or a new admin contract file.`,
+IMN helper commands, create a new account, a new node id, a new genesis file, or a new admin contract file.`,
 		Subcommands: []cli.Command{
 			{
 				Name:   "new-account",
@@ -53,7 +53,7 @@ Metadium helper commands, create a new account, a new node id, a new genesis fil
 					outFlag,
 				},
 				Description: `
-    geth metadium new-account --out <file>
+    geth imn new-account --out <file>
 
 Creates a new account and saves it in the given file name.
 To give password in command line, use "--password <(echo <password>)".
@@ -67,7 +67,7 @@ To give password in command line, use "--password <(echo <password>)".
 					outFlag,
 				},
 				Description: `
-    geth metadium new-nodekey --out <file>
+    geth imn new-nodekey --out <file>
 
 Creates a new node key and saves it in the given file name.
 `,
@@ -77,7 +77,7 @@ Creates a new node key and saves it in the given file name.
 				Usage:  "Print node id from node key",
 				Action: utils.MigrateFlags(nodeKey2Id),
 				Description: `
-    geth metadium new-nodekey <file>
+    geth imn new-nodekey <file>
 
 Print node id from node key.
 `,
@@ -93,7 +93,7 @@ Print node id from node key.
 					outFlag,
 				},
 				Description: `
-    geth metadium genesis [--data <file> --genesis <file> --out <file>]
+    geth imn genesis [--data <file> --genesis <file> --out <file>]
 
 Generate a new genesis file from a template.
 
@@ -111,7 +111,7 @@ Data consists of "<account> <tokens>" or "<node id>".`,
 					outFlag,
 				},
 				Description: `
-    geth metadium admin-contract [--data <file> --admin <file> --out <file>]
+    geth imn admin-contract [--data <file> --admin <file> --out <file>]
 
 Generate a new admin contract file from a template.
 
@@ -132,7 +132,7 @@ The first node becomes the boot miner who's allowed to generate blocks before ad
 					gasPriceFlag,
 				},
 				Description: `
-    geth metadium deploy-contract [--password value --url <url> --gas <gas> --gasprice <gas-price>] <account-file> <contract-name> <contract-file.[js|json]>
+    geth imn deploy-contract [--password value --url <url> --gas <gas> --gasprice <gas-price>] <account-file> <contract-name> <contract-file.[js|json]>
 
 Deploy a contract from a contract file in .js or .json format.`,
 			},
@@ -145,7 +145,7 @@ Deploy a contract from a contract file in .js or .json format.`,
 					outFlag,
 				},
 				Description: `
-    geth metadium download-genesis [--url <url>] [--out <file-name>]
+    geth imn download-genesis [--url <url>] [--out <file-name>]
 
 Download a genesis file from a peer to initialize.`,
 			},
@@ -160,7 +160,7 @@ Download a genesis file from a peer to initialize.`,
 					gasPriceFlag,
 				},
 				Description: `
-    geth metadium deploy-governance [--password value] [--url <url>] [--gas <gas>] [--gasprice <gas-price>] <contract-js-file> <config.js> <account-file>
+    geth imn deploy-governance [--password value] [--url <url>] [--gas <gas>] [--gasprice <gas-price>] <contract-js-file> <config.js> <account-file>
 
 Deploy governance contracts.
 To give password in command line, use "--password <(echo <password>)".

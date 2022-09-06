@@ -23,9 +23,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	imnapi "github.com/ethereum/go-ethereum/imn/api"
 	"github.com/ethereum/go-ethereum/internal/debug"
 	"github.com/ethereum/go-ethereum/log"
-	metaapi "github.com/ethereum/go-ethereum/metadium/api"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -336,15 +336,15 @@ func (api *publicAdminAPI) Datadir() string {
 	return api.node.DataDir()
 }
 
-// MetadiumInfo retrieves the information about Metadium
-func (api *publicAdminAPI) MetadiumInfo() interface{} {
-	return metaapi.Info()
+// IMNInfo retrieves the information about IMN
+func (api *publicAdminAPI) IMNInfo() interface{} {
+	return imnapi.Info()
 }
 
-// MetadiumNodes returns the status of miners
+// IMNNodes returns the status of miners
 // 'node' can a name, node id or ip address
-func (api *publicAdminAPI) MetadiumNodes(node string, timeout int) interface{} {
-	return metaapi.GetMiners(node, timeout)
+func (api *publicAdminAPI) IMNNodes(node string, timeout int) interface{} {
+	return imnapi.GetMiners(node, timeout)
 }
 
 // publicWeb3API offers helper utils

@@ -23,7 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -114,8 +114,8 @@ func (v *BlockValidator) ValidateState(block *types.Block, statedb *state.StateD
 func CalcGasLimit(parentGasLimit, desiredLimit uint64) uint64 {
 	if params.FixedGasLimit != 0 {
 		return params.FixedGasLimit
-	} else if !metaminer.IsPoW() {
-		if desiredLimit == 0 { // NxtMeta: governance is not initialized yet, inherit parent's gas limit
+	} else if !imnminer.IsPoW() {
+		if desiredLimit == 0 { // IMN: governance is not initialized yet, inherit parent's gas limit
 			return parentGasLimit
 		}
 		return desiredLimit

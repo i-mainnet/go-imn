@@ -24,7 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
 	"github.com/ethereum/go-ethereum/eth/protocols/snap"
-	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -279,12 +279,12 @@ var (
 // peersWithoutTransaction2 retrieves a list of peers that do not have a given
 // transaction in their set of known hashes.
 func (ps *peerSet) peersWithoutTransaction2(hash common.Hash) []*ethPeer {
-	if !metaminer.AmPartner() {
+	if !imnminer.AmPartner() {
 		return ps.peersWithoutTransaction(hash)
 	}
 
 	if isHub == -1 {
-		isHub = metaminer.AmHub(params.Hub)
+		isHub = imnminer.AmHub(params.Hub)
 	}
 
 	if isHub == 0 {

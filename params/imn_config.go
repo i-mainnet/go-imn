@@ -1,4 +1,4 @@
-// metadium_config.go
+// imn_config.go
 
 package params
 

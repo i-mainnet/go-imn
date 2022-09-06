@@ -1,8 +1,8 @@
 #!/bin/bash
 
-[ "$META_DIR" = "" ] && META_DIR=/opt
+[ "$IMN_DIR" = "" ] && IMN_DIR=/opt
 
-CHAIN_ID=101
+CHAIN_ID=8282
 CONSENSUS_METHOD=2
 FIXED_GAS_LIMIT=0x40000000
 GAS_PRICE=1000000000
@@ -12,14 +12,14 @@ BLOCKS_PER_TURN=10
 function get_data_dir ()
 {
     if [ ! "$1" = "" ]; then
-	d=${META_DIR}/$1
+	d=${IMN_DIR}/$1
 	if [ -x "$d/bin/gimn" ]; then
 	    echo $d
 	fi
     else
-	for i in $(/bin/ls -1 ${META_DIR}); do
-	    if [ -x "${META_DIR}/$i/bin/gimn" ]; then
-		echo ${META_DIR}/$i
+	for i in $(/bin/ls -1 ${IMN_DIR}); do
+	    if [ -x "${IMN_DIR}/$i/bin/gimn" ]; then
+		echo ${IMN_DIR}/$i
 		return
 	    fi
 	done
@@ -57,7 +57,7 @@ function init ()
     [ -d "$d/geth" ] || mkdir -p "$d/geth"
     [ -d "$d/logs" ] || mkdir -p "$d/logs"
 
-    ${GIMN} metadium genesis --data "$CONFIG" --genesis "$d/conf/genesis-template.json" --out "$d/genesis.json"
+    ${GIMN} imn genesis --data "$CONFIG" --genesis "$d/conf/genesis-template.json" --out "$d/genesis.json"
     [ $? = 0 ] || return $?
 
     echo "PORT=8588
@@ -93,16 +93,16 @@ function init_gov ()
 	return 1
     fi
 
-    if [ ! -f "${d}/conf/MetadiumGovernance.js" ]; then
-	echo "Cannot find ${d}/conf/MetadiumGovernance.js"
+    if [ ! -f "${d}/conf/IMNGovernance.js" ]; then
+	echo "Cannot find ${d}/conf/IMNGovernance.js"
 	return 1
     fi
 
     PORT=$(grep PORT ${d}/.rc | sed -e 's/PORT=//')
     [ "$PORT" = "" ] && PORT=8588
 
-    exec ${GIMN} attach http://localhost:${PORT} --preload "$d/conf/MetadiumGovernance.js,$d/conf/deploy-governance.js" --exec 'GovernanceDeployer.deploy("'${ACCT}'", "", "'${CONFIG}'")'
-#    ${GIMN} metadium deploy-governance --url http://localhost:${PORT} --gasprice 1 --gas 0xF000000 "$d/conf/MetadiumGovernance.js" "$CONFIG" "${ACCT}"
+    exec ${GIMN} attach http://localhost:${PORT} --preload "$d/conf/IMNGovernance.js,$d/conf/deploy-governance.js" --exec 'GovernanceDeployer.deploy("'${ACCT}'", "", "'${CONFIG}'")'
+#    ${GIMN} imn deploy-governance --url http://localhost:${PORT} --gasprice 1 --gas 0xF000000 "$d/conf/IMNGovernance.js" "$CONFIG" "${ACCT}"
 }
 
 function wipe ()
@@ -120,8 +120,8 @@ function wipe ()
 
 function wipe_all ()
 {
-    for i in `/bin/ls -1 ${META_DIR}/`; do
-	if [ ! -d "${META_DIR}/$i" -o ! -x "${META_DIR}/$i/bin/gimn" ]; then
+    for i in `/bin/ls -1 ${IMN_DIR}/`; do
+	if [ ! -d "${IMN_DIR}/$i" -o ! -x "${IMN_DIR}/$i/bin/gimn" ]; then
 	    continue
 	fi
 	wipe $i
@@ -144,8 +144,8 @@ function clean ()
 
 function clean_all ()
 {
-    for i in `/bin/ls -1 ${META_DIR}/`; do
-	if [ ! -d "${META_DIR}/$i" -o ! -d "${META_DIR}/$i/geth" ]; then
+    for i in `/bin/ls -1 ${IMN_DIR}/`; do
+	if [ ! -d "${IMN_DIR}/$i" -o ! -d "${IMN_DIR}/$i/geth" ]; then
 	    continue
 	fi
 	clean $i
@@ -210,8 +210,8 @@ function start ()
 
 function start_all ()
 {
-    for i in `/bin/ls -1 ${META_DIR}/`; do
-	if [ ! -d "${META_DIR}/$i" -o ! -f "${META_DIR}/$i/bin/gimn" ]; then
+    for i in `/bin/ls -1 ${IMN_DIR}/`; do
+	if [ ! -d "${IMN_DIR}/$i" -o ! -f "${IMN_DIR}/$i/bin/gimn" ]; then
 	    continue
 	fi
 	start $i
@@ -236,7 +236,7 @@ function do_nodes ()
 	if [ "$1" = "$LHN" -o "$1" = "${LHN/.*/}" ]; then
 	    $0 ${CMD} $2
 	else
-	    ssh -f $1 ${META_DIR}/$2/bin/gimn.sh ${CMD} $2
+	    ssh -f $1 ${IMN_DIR}/$2/bin/gimn.sh ${CMD} $2
 	fi
 	shift
 	shift

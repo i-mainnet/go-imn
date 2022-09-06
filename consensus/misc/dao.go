@@ -23,7 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	metaminer "github.com/ethereum/go-ethereum/metadium/miner"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -56,7 +56,7 @@ func VerifyDAOHeaderExtraData(config *params.ChainConfig, header *types.Header) 
 		return nil
 	}
 	// Depending on whether we support or oppose the fork, validate the extra-data contents
-	if metaminer.IsPoW() {
+	if imnminer.IsPoW() {
 		if config.DAOForkSupport {
 			if !bytes.Equal(header.Extra, params.DAOForkBlockExtra) {
 				return ErrBadProDAOExtra

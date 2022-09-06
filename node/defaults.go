@@ -73,7 +73,7 @@ func DefaultDataDir() string {
 			}
 			return filepath.Join(appdata, "Ethereum")
 		default:
-			return filepath.Join(home, ".metadium")
+			return filepath.Join(home, ".imn")
 		}
 	}
 	// As we cannot guess a stable location, return empty and handle later
