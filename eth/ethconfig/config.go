@@ -72,7 +72,7 @@ var Defaults = Config{
 		DatasetsOnDisk:   2,
 		DatasetsLockMmap: false,
 	},
-	NetworkId:               11,
+	NetworkId:               8282,
 	TxLookupLimit:           2350000,
 	LightPeers:              100,
 	UltraLightFraction:      75,
