@@ -18,6 +18,7 @@ package miner
 
 import (
 	"errors"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"math/big"
 	"math/rand"
 	"sync/atomic"
@@ -323,6 +324,10 @@ func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consens
 }
 
 func TestStreamUncleBlock(t *testing.T) {
+	if imnminer.IsPoW() {
+		// imn: no uncle block handling
+		return
+	}
 	ethash := ethash.NewFaker()
 	defer ethash.Close()
 
