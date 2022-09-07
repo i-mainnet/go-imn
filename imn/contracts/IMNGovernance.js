@@ -606,22 +606,3 @@ function StorageSlot_new() {
 function StorageSlot_load(addr) {
   return StorageSlot_contract.at(addr);
 }
-var SafeMath_data = "0x60566037600b82828239805160001a607314602a57634e487b7160e01b600052600060045260246000fd5b30600052607381538281f3fe73000000000000000000000000000000000000000030146080604052600080fdfea264697066735822122077b56324e944f3c8dcfa7420f3fbac2103d275bf6013e806b6cf82e9d8ec7f5a64736f6c63430008060033";
-var SafeMath_contract = web3.eth.contract([]);
-
-function SafeMath_new() {
-  return SafeMath_contract.new(
-      {
-        from: web3.eth.accounts[0],
-        data: SafeMath_data,
-        gas: "0x10000000"
-      }, function (e, contract) {
-        if (typeof contract.address !== "undefined") {
-          console.log("Contract mined! address: " + contract.address + " transactionHash: " + contract.transactionHash);
-        }
-      });
-}
-
-function SafeMath_load(addr) {
-  return SafeMath_contract.at(addr);
-}

@@ -1347,7 +1347,7 @@ func LogBlock(height int64, hash common.Hash) {
 	}
 
 	tstart := time.Now()
-	rev, err := admin.etcdPut("imn-work", string(work))
+	rev, err := admin.etcdPut("work", string(work))
 	if err != nil {
 		log.Error("failed to log the latest block",
 			"height", height, "hash", hash, "took", time.Since(tstart))
