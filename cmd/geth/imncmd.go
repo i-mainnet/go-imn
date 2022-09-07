@@ -33,7 +33,7 @@ import (
 	"gopkg.in/urfave/cli.v1"
 )
 
-// gmet imn new-account
+// gimn imn new-account
 var (
 	imnCommand = cli.Command{
 		Name:      "imn",
@@ -195,7 +195,7 @@ To give password in command line, use "--password <(echo <password>)".
 	}
 	urlFlag = cli.StringFlag{
 		Name:  "url",
-		Usage: "url of gmet node",
+		Usage: "url of gimn node",
 	}
 )
 
