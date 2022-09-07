@@ -106,7 +106,7 @@ func TestDAOForkBlockNewChain(t *testing.T) {
 
 func testDAOForkBlockNewChain(t *testing.T, test int, genesis string, expectBlock *big.Int, expectVote bool) {
 	if params.ConsensusMethod == params.ConsensusPoW {
-		// wemix: not applicable
+		// imn: not applicable
 		return
 	}
 

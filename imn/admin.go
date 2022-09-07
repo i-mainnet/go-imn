@@ -123,7 +123,7 @@ type rewardParameters struct {
 
 var (
 	// "IMN Registry"
-	magic, _        = big.NewInt(0).SetString("0x4d6574616469756d205265676973747279", 0)
+	magic, _        = big.NewInt(0).SetString("0x57656d6978205265676973747279", 0)
 	etcdClusterName = "IMN"
 	big0            = big.NewInt(0)
 	nilAddress      = common.Address{}
@@ -1347,7 +1347,7 @@ func LogBlock(height int64, hash common.Hash) {
 	}
 
 	tstart := time.Now()
-	rev, err := admin.etcdPut("metadium-work", string(work))
+	rev, err := admin.etcdPut("work", string(work))
 	if err != nil {
 		log.Error("failed to log the latest block",
 			"height", height, "hash", hash, "took", time.Since(tstart))
@@ -1465,11 +1465,10 @@ func getBlockBuildParameters(height *big.Int) (blockInterval int64, maxBaseFee, 
 	baseFeeMaxChangeRate = gasLimitAndBaseFee[1].Int64()
 	gasTargetPercentage = gasLimitAndBaseFee[2].Int64()
 
-	// if err = metclient.CallContract(ctx, env, "getMaxBaseFee", nil, &maxBaseFee, height); err != nil {
-	//	err = imnminer.ErrNotInitialized
-	//	return
-	// }
-	maxBaseFee = big.NewInt(500 * params.GWei)
+	if err = metclient.CallContract(ctx, env, "getMaxBaseFee", nil, &maxBaseFee, height); err != nil {
+		err = imnminer.ErrNotInitialized
+		return
+	}
 
 	// cache it
 	blockBuildParamsLock.Lock()

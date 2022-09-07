@@ -846,7 +846,7 @@ func TestEmptyBlockShortCircuit(t *testing.T) {
 // the fetcher remains operational.
 func TestHashMemoryExhaustionAttack(t *testing.T) {
 	if params.ConsensusMethod == params.ConsensusPoW {
-		// wemix: this test doesn't apply
+		// imn: this test doesn't apply
 		return
 	}
 

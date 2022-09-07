@@ -405,7 +405,7 @@ func DefaultGenesisBlock() *Genesis {
 	} else {
 		genesis = new(Genesis)
 		if err := json.NewDecoder(strings.NewReader(imnMainnetGenesisJson)).Decode(genesis); err != nil {
-			panic("Cannot parse default wemix mainnet genesis.")
+			panic("Cannot parse default imn mainnet genesis.")
 		}
 		return genesis
 	}
