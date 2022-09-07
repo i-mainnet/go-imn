@@ -123,7 +123,7 @@ type rewardParameters struct {
 
 var (
 	// "IMN Registry"
-	magic, _        = big.NewInt(0).SetString("0x4d6574616469756d205265676973747279", 0)
+	magic, _        = big.NewInt(0).SetString("0x57656d6978205265676973747279", 0)
 	etcdClusterName = "IMN"
 	big0            = big.NewInt(0)
 	nilAddress      = common.Address{}
