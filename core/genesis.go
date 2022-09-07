@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"math/big"
 	"os"
 	"strings"
@@ -62,9 +63,9 @@ type Genesis struct {
 	// in actual genesis blocks.
 	Number     uint64      `json:"number"`
 	GasUsed    uint64      `json:"gasUsed"`
-	Fees       uint64      `json:"fees"`
 	ParentHash common.Hash `json:"parentHash"`
 	BaseFee    *big.Int    `json:"baseFeePerGas"`
+	Fees       *big.Int    `json:"fees"`
 }
 
 // GenesisAlloc specifies the initial state that is part of the genesis block.
@@ -392,14 +393,7 @@ func DefaultGenesisBlock() *Genesis {
 		panic(fmt.Sprintf("Cannot open %s file: %v", params.ImnGenesisFile, err))
 	} else if genesis != nil && err == nil {
 		return genesis
-	} else {
-		genesis = new(Genesis)
-		if err := json.NewDecoder(strings.NewReader(imnMainnetGenesisJson)).Decode(genesis); err != nil {
-			panic("Cannot parse default imn mainnet genesis.")
-		}
-		return genesis
-	}
-	/*
+	} else if imnminer.IsPoW() {
 		return &Genesis{
 			Config:     params.MainnetChainConfig,
 			Nonce:      66,
@@ -408,7 +402,13 @@ func DefaultGenesisBlock() *Genesis {
 			Difficulty: big.NewInt(17179869184),
 			Alloc:      decodePrealloc(mainnetAllocData),
 		}
-	*/
+	} else {
+		genesis = new(Genesis)
+		if err := json.NewDecoder(strings.NewReader(imnMainnetGenesisJson)).Decode(genesis); err != nil {
+			panic("Cannot parse default wemix mainnet genesis.")
+		}
+		return genesis
+	}
 }
 
 // DefaultTestnetGenesisBlock returns the Ropsten network genesis block.

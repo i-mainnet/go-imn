@@ -68,7 +68,7 @@ else
 		$(GORUN) build/ci.go install $(ROCKSDB_TAG) ./cmd/dbbench
 endif
 
-all:
+all: imn/governance_abi.go
 	$(GORUN) build/ci.go install
 
 android:
