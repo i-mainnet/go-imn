@@ -363,7 +363,7 @@ case "$1" in
     if [ -f "$d/rc.js" ]; then
 	RCJS="--preload $d/rc.js"
     fi
-    exec ${d}/bin/gimn ${RCJS} attach ipc:${d}/geth.ipc
+    exec ${d}/bin/gimn ${RCJS} attach ipc:${d}/gimn.ipc
     ;;
 
 *)

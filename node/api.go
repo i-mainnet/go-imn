@@ -336,14 +336,14 @@ func (api *publicAdminAPI) Datadir() string {
 	return api.node.DataDir()
 }
 
-// IMNInfo retrieves the information about IMN
-func (api *publicAdminAPI) IMNInfo() interface{} {
+// ImnInfo retrieves the information about IMN
+func (api *publicAdminAPI) ImnInfo() interface{} {
 	return imnapi.Info()
 }
 
-// IMNNodes returns the status of miners
+// ImnNodes returns the status of miners
 // 'node' can a name, node id or ip address
-func (api *publicAdminAPI) IMNNodes(node string, timeout int) interface{} {
+func (api *publicAdminAPI) ImnNodes(node string, timeout int) interface{} {
 	return imnapi.GetMiners(node, timeout)
 }
 
