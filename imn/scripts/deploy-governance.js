@@ -223,15 +223,14 @@ var GovernanceDeployer = new function() {
         code = EnvStorage_contract.getData(envStorageImp.address, {data: EnvStorage_data})
         envStorage = this.deployContract(code)
         govImp = this.deployContract(GovImp_data)
-        gov = this.deployContract(Gov_data)
 
         this.log("Waiting for receipts...")
+        govImp = this.resolveContract(GovImp_contract.abi, govImp)
         code = Gov_contract.getData(govImp.address, { data: Gov_data })
         gov = this.deployContract(code)
 
         this.log("Waiting for gov contract...")
         gov = this.resolveContract(Gov_contract.abi, gov)
-        govImp = this.resolveContract(GovImp_contract.abi, govImp)
         envStorage = this.resolveContract(EnvStorage_contract.abi, envStorage)
         ballotStorage = this.resolveContract(BallotStorage_contract.abi, ballotStorage)
         staking = this.resolveContract(Staking_contract.abi, staking)
