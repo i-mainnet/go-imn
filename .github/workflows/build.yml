@@ -1,4 +1,4 @@
-name: Go
+name: Build Go-IMN
 
 on:
   push:
@@ -16,8 +16,8 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version: 1.18
-
-    - name: Check Version
-      run: go version
-    - name: List file
-      run: ls -al
+      
+    - name: Build Go-IMN
+      run: make gimn.tar.gz
+    - name: Check Build
+      run: ls -al build/gimn.tar.gz
