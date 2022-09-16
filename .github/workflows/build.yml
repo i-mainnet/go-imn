@@ -2,9 +2,9 @@ name: Build Go-IMN
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "gimn" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "gimn" ]
 
 jobs:
   build:
