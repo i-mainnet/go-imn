@@ -17,6 +17,8 @@ jobs:
       with:
         go-version: 1.18
       
+    - name: ls -al
+      run: pwd; ls -al
     - name: Build Go-IMN
       run: make gimn.tar.gz
     - name: Check Build
