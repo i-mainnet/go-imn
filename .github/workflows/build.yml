@@ -2,15 +2,17 @@ name: Build Go-IMN
 
 on:
   push:
-    branches: [ "gimn" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "gimn" ]
+    branches: [ "master" ]
 
 jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v3
+      with:
+        ref: gimn
 
     - name: Set up Go
       uses: actions/setup-go@v3
