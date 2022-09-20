@@ -12,16 +12,16 @@ function get_script_dir ()
 function get_data_dir ()
 {
     if [ ! "$1" = "" ]; then
-	    if [ -x "$1/bin/gimn" ]; then
-	      echo $1
-      else
-	      d=${IMN_DIR}/$1
-	      if [ -x "$d/bin/gimn" ]; then
-		      echo $d
-	      fi
-	    fi
+        if [ -x "$1/bin/gimn" ]; then
+            echo $1
+        else
+            d=${IMN_DIR}/$1
+            if [ -x "$d/bin/gimn" ]; then
+                echo $d
+            fi
+        fi
     else
-	    echo $(dirname $(get_script_dir))
+        echo $(dirname $(get_script_dir))
     fi
 }
 
@@ -32,21 +32,21 @@ function init ()
     CONFIG="$2"
 
     if [ ! -f "$CONFIG" ]; then
-	echo "Cannot find config file: $2"
-	return 1
+        echo "Cannot find config file: $2"
+        return 1
     fi
 
     d=$(get_data_dir "${NODE}")
     if [ -x "$d/bin/gimn" ]; then
-	GIMN="$d/bin/gimn"
+        GIMN="$d/bin/gimn"
     else
-	echo "Cannot find gimn"
-	return 1
+        echo "Cannot find gimn"
+        return 1
     fi
 
     if [ ! -f "${d}/conf/genesis-template.json" ]; then
-	echo "Cannot find template files."
-	return 1
+        echo "Cannot find template files."
+        return 1
     fi
 
     echo "wiping out data..."
@@ -80,50 +80,50 @@ function init_gov ()
     [ "$4" = "0" ] && INIT_ONCE=false || INIT_ONCE=true
 
     if [ ! -f "$CONFIG" ]; then
-	echo "Cannot find config file: $2"
-	return 1
+        echo "Cannot find config file: $2"
+        return 1
     fi
 
     d=$(get_data_dir "${NODE}")
     if [ -x "$d/bin/gimn" ]; then
-	GIMN="$d/bin/gimn"
+        GIMN="$d/bin/gimn"
     else
-	echo "Cannot find gimn"
-	return 1
+        echo "Cannot find gimn"
+        return 1
     fi
 
     if [ ! -f "${d}/conf/IMNGovernance.js" ]; then
-	echo "Cannot find ${d}/conf/IMNGovernance.js"
-	return 1
+        echo "Cannot find ${d}/conf/IMNGovernance.js"
+        return 1
     fi
 
     PORT=$(grep PORT ${d}/.rc | sed -e 's/PORT=//')
     [ "$PORT" = "" ] && PORT=8588
 
-exec ${GIMN} attach http://localhost:${PORT} --preload "$d/conf/IMNGovernance.js,$d/conf/deploy-governance.js" --exec 'GovernanceDeployer.deploy("'${ACCT}'", "", "'${CONFIG}'", '${INIT_ONCE}')'
+    exec ${GIMN} attach http://localhost:${PORT} --preload "$d/conf/IMNGovernance.js,$d/conf/deploy-governance.js" --exec 'GovernanceDeployer.deploy("'${ACCT}'", "", "'${CONFIG}'", '${INIT_ONCE}')'
 }
 
 function wipe ()
 {
     d=$(get_data_dir "$1")
     if [ ! -x "$d/bin/gimn" ]; then
-	echo "Is '$1' imn data directory?"
-	return
+        echo "Is '$1' imn data directory?"
+        return
     fi
 
     cd $d
     /bin/rm -rf geth/LOCK geth/chaindata geth/ethash geth/lightchaindata \
-	geth/transactions.rlp geth/nodes geth/triecache gimn.ipc logs/* etcd
+    geth/transactions.rlp geth/nodes geth/triecache gimn.ipc logs/* etcd
 }
 
 function clean ()
 {
     d=$(get_data_dir "$1")
     if [ -x "$d/bin/gimn" ]; then
-	GIMN="$d/bin/gimn"
+        GIMN="$d/bin/gimn"
     else
-	echo "Cannot find gimn"
-	return
+        echo "Cannot find gimn"
+        return
     fi
 
     cd $d
@@ -134,10 +134,10 @@ function start ()
 {
     d=$(get_data_dir "$1")
     if [ -x "$d/bin/gimn" ]; then
-	GIMN="$d/bin/gimn"
+        GIMN="$d/bin/gimn"
     else
-	echo "Cannot find gimn"
-	return
+        echo "Cannot find gimn"
+        return
     fi
 
     [ -f "$d/.rc" ] && source "$d/.rc"
@@ -151,19 +151,19 @@ function start ()
     [ "$BOOT_NODES" = "" ] || BOOT_NODES="--bootnodes $BOOT_NODES"
     [ "$TESTNET" = "1" ] && TESTNET=--imn-testnet
     if [ "$DISCOVER" = "0" ]; then
-	DISCOVER=--nodiscover
+        DISCOVER=--nodiscover
     else
-	DISCOVER=
+        DISCOVER=
     fi
     case $SYNC_MODE in
     "full")
-	SYNC_MODE="--syncmode full";;
+        SYNC_MODE="--syncmode full";;
     "fast")
-	SYNC_MODE="--syncmode fast";;
+        SYNC_MODE="--syncmode fast";;
     "snap")
-	SYNC_MODE="--syncmode snap";;
+        SYNC_MODE="--syncmode snap";;
     *)
-	SYNC_MODE="--syncmode full --gcmode archive";;
+        SYNC_MODE="--syncmode full --gcmode archive";;
     esac
 
     OPTS="$COINBASE $DISCOVER $RPCOPT $BOOT_NODES $NONCE_LIMIT $TESTNET $SYNC_MODE ${GIMN_OPTS}"
@@ -175,14 +175,14 @@ function start ()
 
     cd $d
     if [ ! "$2" = "inner" ]; then
-	$GIMN --datadir ${PWD} --metrics $OPTS 2>&1 |   \
-	    ${d}/bin/logrot ${d}/logs/log 10M 5 &
+        $GIMN --datadir ${PWD} --metrics $OPTS 2>&1 |   \
+        ${d}/bin/logrot ${d}/logs/log 10M 5 &
     else
-	if [ -x "$d/bin/logrot" ]; then
-	    exec > >($d/bin/logrot $d/logs/log 10M 5)
-	    exec 2>&1
-	fi
-	exec $GIMN --datadir ${PWD} --metrics $OPTS
+        if [ -x "$d/bin/logrot" ]; then
+            exec > >($d/bin/logrot $d/logs/log 10M 5)
+            exec 2>&1
+        fi
+        exec $GIMN --datadir ${PWD} --metrics $OPTS
     fi
 }
 
@@ -197,13 +197,13 @@ function do_nodes ()
     CMD=${1/-nodes/}
     shift
     while [ ! "$1" = "" -a ! "$2" = "" ]; do
-	if [ "$1" = "$LHN" -o "$1" = "${LHN/.*/}" ]; then
-	    $0 ${CMD} $2
-	else
-	    ssh -f $1 ${IMN_DIR}/$2/bin/gimn.sh ${CMD} $2
-	fi
-	shift
-	shift
+        if [ "$1" = "$LHN" -o "$1" = "${LHN/.*/}" ]; then
+            $0 ${CMD} $2
+        else
+            ssh -f $1 ${IMN_DIR}/$2/bin/gimn.sh ${CMD} $2
+        fi
+        shift
+        shift
     done
 }
 
@@ -221,17 +221,17 @@ function usage ()
 case "$1" in
 "init")
     if [ $# -lt 3 ]; then
-	usage;
+        usage;
     else
-	init "$2" "$3"
+        init "$2" "$3"
     fi
     ;;
 
 "init-gov")
     if [ $# -lt 4 ]; then
-	usage;
+        usage;
     else
-  init_gov "$2" "$3" "$4" "$5"
+        init_gov "$2" "$3" "$4" "$5"
     fi
     ;;
 
@@ -248,22 +248,22 @@ case "$1" in
     dir=$(get_data_dir $2)
     PIDS=$(get_gimn_pids ${dir})
     if [ ! "$PIDS" = "" ]; then
-	    echo $PIDS | xargs -L1 kill
+        echo $PIDS | xargs -L1 kill
     fi
     for i in {1..200}; do
-      PIDS=$(get_gimn_pids ${dir})
-	    [ "$PIDS" = "" ] && break
-	    echo -n "."
-	    sleep 1
+        PIDS=$(get_gimn_pids ${dir})
+        [ "$PIDS" = "" ] && break
+        echo -n "."
+        sleep 1
     done
     PIDS=$(get_gimn_pids ${dir})
     if [ ! "$PIDS" = "" ]; then
-	    echo $PIDS | xargs -L1 kill -9
+        echo $PIDS | xargs -L1 kill -9
     fi
     # wait until geth/chaindata is free
     for i in {1..200}; do
-	    lsof ${dir}/geth/chaindata/LOG 2>&1 | grep -q gimn > /dev/null 2>&1 || break
-	    sleep 1
+        lsof ${dir}/geth/chaindata/LOG 2>&1 | grep -q gimn > /dev/null 2>&1 || break
+        sleep 1
     done
     echo "done."
     ;;
@@ -274,9 +274,9 @@ case "$1" in
 
 "start-inner")
     if [ "$2" = "" ]; then
-	usage;
+        usage;
     else
-	start $2 inner
+        start $2 inner
     fi
     ;;
 
@@ -287,19 +287,19 @@ case "$1" in
 
 "start-nodes"|"restart-nodes"|"stop-nodes")
     if [ "${NODES}" = "" ]; then
-	echo "NODES is not defined"
+        echo "NODES is not defined"
     fi
-    do_nodes $1 ${NODES}
+        do_nodes $1 ${NODES}
     ;;
 
 "console")
     d=$(get_data_dir "$2")
     if [ ! -d $d ]; then
-	usage; exit;
+        usage; exit;
     fi
     RCJS=
     if [ -f "$d/rc.js" ]; then
-	RCJS="--preload $d/rc.js"
+        RCJS="--preload $d/rc.js"
     fi
     exec ${d}/bin/gimn ${RCJS} attach ipc:${d}/gimn.ipc
     ;;
