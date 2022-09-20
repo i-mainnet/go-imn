@@ -321,7 +321,7 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 		return err
 	}
 	// IMN: Check if it's generated and signed by a registered node
-	if !imnminer.IsPoW() && !imnminer.VerifyBlockSig(header.Number, header.MinerNodeId, header.Root, header.MinerNodeSig) {
+	if !imnminer.IsPoW() && !imnminer.VerifyBlockSig(header.Number, header.Coinbase, header.Root, header.MinerNodeSig) {
 		return consensus.ErrUnauthorized
 	}
 	return nil
@@ -623,11 +623,11 @@ func (ethash *Ethash) FinalizeAndAssemble(chain consensus.ChainHeaderReader, hea
 
 	// sign header.Root with node's private key
 	if !imnminer.IsPoW() {
-		nodeId, sig, err := imnminer.SignBlock(header.Root)
+		coinbase, sig, err := imnminer.SignBlock(header.Number, header.Root)
 		if err != nil {
 			return nil, err
 		} else {
-			header.MinerNodeId = nodeId
+			header.Coinbase = coinbase
 			header.MinerNodeSig = sig
 		}
 	}

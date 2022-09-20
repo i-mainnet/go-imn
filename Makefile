@@ -119,7 +119,8 @@ gimn-linux:
 			-f Dockerfile.imn . &&			\
 		docker run -e HOME=/tmp --rm -v $(shell pwd):/data	\
 			-w /data imn/builder:local			\
-			make USE_ROCKSDB=$(USE_ROCKSDB);		\
+			"git config --global --add safe.directory /data;\
+			 make USE_ROCKSDB=$(USE_ROCKSDB)";		\
 	fi
 
 ifneq ($(USE_ROCKSDB), YES)

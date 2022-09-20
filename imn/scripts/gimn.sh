@@ -1,29 +1,27 @@
 #!/bin/bash
 
-[ "$IMN_DIR" = "" ] && IMN_DIR=/opt
+IMN_DIR=${IMN_DIR:-/opt}
 
-CHAIN_ID=8282
-CONSENSUS_METHOD=2
-FIXED_GAS_LIMIT=0x40000000
-GAS_PRICE=1000000000
-MAX_IDLE_BLOCK_INTERVAL=600
-BLOCKS_PER_TURN=10
+function get_script_dir ()
+{
+    OPWD=$(pwd)
+    echo $(cd $(dirname ${BASH_SOURCE[0]}) &> /dev/null && pwd)
+    cd "$OPWD"
+}
 
 function get_data_dir ()
 {
     if [ ! "$1" = "" ]; then
-	d=${IMN_DIR}/$1
-	if [ -x "$d/bin/gimn" ]; then
-	    echo $d
-	fi
-    else
-	for i in $(/bin/ls -1 ${IMN_DIR}); do
-	    if [ -x "${IMN_DIR}/$i/bin/gimn" ]; then
-		echo ${IMN_DIR}/$i
-		return
+	    if [ -x "$1/bin/gimn" ]; then
+	      echo $1
+      else
+	      d=${IMN_DIR}/$1
+	      if [ -x "$d/bin/gimn" ]; then
+		      echo $d
+	      fi
 	    fi
-	done
-	echo "$(cd "$(dirname "$0")" && pwd)"
+    else
+	    echo $(dirname $(get_script_dir))
     fi
 }
 
@@ -79,7 +77,7 @@ function init_gov ()
     NODE="$1"
     CONFIG="$2"
     ACCT="$3"
-    [ "$4" = "1" ] && INIT_ONCE=true || INIT_ONCE=false
+    [ "$4" = "0" ] && INIT_ONCE=false || INIT_ONCE=true
 
     if [ ! -f "$CONFIG" ]; then
 	echo "Cannot find config file: $2"
@@ -103,7 +101,6 @@ function init_gov ()
     [ "$PORT" = "" ] && PORT=8588
 
 exec ${GIMN} attach http://localhost:${PORT} --preload "$d/conf/IMNGovernance.js,$d/conf/deploy-governance.js" --exec 'GovernanceDeployer.deploy("'${ACCT}'", "", "'${CONFIG}'", '${INIT_ONCE}')'
-#    ${GIMN} imn deploy-governance --url http://localhost:${PORT} --gasprice 1 --gas 0xF000000 "$d/conf/IMNGovernance.js" "$CONFIG" "${ACCT}"
 }
 
 function wipe ()
@@ -119,16 +116,6 @@ function wipe ()
 	geth/transactions.rlp geth/nodes geth/triecache gimn.ipc logs/* etcd
 }
 
-function wipe_all ()
-{
-    for i in `/bin/ls -1 ${IMN_DIR}/`; do
-	if [ ! -d "${IMN_DIR}/$i" -o ! -x "${IMN_DIR}/$i/bin/gimn" ]; then
-	    continue
-	fi
-	wipe $i
-    done
-}
-
 function clean ()
 {
     d=$(get_data_dir "$1")
@@ -141,16 +128,6 @@ function clean ()
 
     cd $d
     $GIMN --datadir ${PWD} removedb
-}
-
-function clean_all ()
-{
-    for i in `/bin/ls -1 ${IMN_DIR}/`; do
-	if [ ! -d "${IMN_DIR}/$i" -o ! -d "${IMN_DIR}/$i/geth" ]; then
-	    continue
-	fi
-	clean $i
-    done
 }
 
 function start ()
@@ -209,23 +186,9 @@ function start ()
     fi
 }
 
-function start_all ()
-{
-    for i in `/bin/ls -1 ${IMN_DIR}/`; do
-	if [ ! -d "${IMN_DIR}/$i" -o ! -f "${IMN_DIR}/$i/bin/gimn" ]; then
-	    continue
-	fi
-	start $i
-	echo "started $i."
-	return
-    done
-
-    echo "Cannot find gimn directory. Check if 'bin/gimn' is present in the data directory";
-}
-
 function get_gimn_pids ()
 {
-    ps axww | grep -v grep | grep "gimn.*datadir.*${NODE}" | awk '{print $1}'
+    ps axww | grep -v grep | grep "gimn.*datadir.*${1}" | awk '{print $1}'
 }
 
 function do_nodes ()
@@ -273,60 +236,40 @@ case "$1" in
     ;;
 
 "wipe")
-    if [ ! "$2" = "" ]; then
-	wipe $2
-    else
-	wipe_all
-    fi
+    wipe $2
     ;;
 
 "clean")
-    if [ ! "$2" = "" ]; then
-	clean $2
-    else
-	clean_all
-    fi
+    clean $2
     ;;
 
 "stop")
     echo -n "stopping..."
-    if [ ! "$2" = "" ]; then
-	NODE=$2
-    else
-	NODE=
-    fi
-    PIDS=`get_gimn_pids`
+    dir=$(get_data_dir $2)
+    PIDS=$(get_gimn_pids ${dir})
     if [ ! "$PIDS" = "" ]; then
-	echo $PIDS | xargs -L1 kill
+	    echo $PIDS | xargs -L1 kill
     fi
     for i in {1..200}; do
-	PIDS=`get_gimn_pids`
-	[ "$PIDS" = "" ] && break
-	echo -n "."
-	sleep 1
+      PIDS=$(get_gimn_pids ${dir})
+	    [ "$PIDS" = "" ] && break
+	    echo -n "."
+	    sleep 1
     done
-    PIDS=`get_gimn_pids`
+    PIDS=$(get_gimn_pids ${dir})
     if [ ! "$PIDS" = "" ]; then
-	echo $PIDS | xargs -L1 kill -9
+	    echo $PIDS | xargs -L1 kill -9
     fi
     # wait until geth/chaindata is free
-    if [ ! "$NODE" = "" ]; then
-        d=$(get_data_dir "$1")
-        for i in {1..200}; do
-            lsof ${d}/geth/chaindata/LOG 2>&1 | grep -q gimn > /dev/null 2>&1 || break
-            sleep 1
-        done
-    fi
+    for i in {1..200}; do
+	    lsof ${dir}/geth/chaindata/LOG 2>&1 | grep -q gimn > /dev/null 2>&1 || break
+	    sleep 1
+    done
     echo "done."
     ;;
 
 "start")
-    if [ ! "$2" = "" ]; then
-	start $2
-	echo "started $2."
-    else
-	start_all
-    fi
+    start $2
     ;;
 
 "start-inner")
@@ -338,13 +281,8 @@ case "$1" in
     ;;
 
 "restart")
-    if [ ! "$2" = "" ]; then
-	$0 stop $2
-	start $2
-    else
-	$0 stop
-	start_all
-    fi
+    $0 stop $2
+    start $2
     ;;
 
 "start-nodes"|"restart-nodes"|"stop-nodes")
