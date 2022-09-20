@@ -139,6 +139,16 @@ var (
 	// cached block build parameters
 	blockBuildParamsLock = &sync.Mutex{}
 	blockBuildParams     *blockBuildParameters
+
+	// cached node id / enode check
+	enodeCache = &sync.Map{}
+
+	// testnet block 94 rewards
+	testnetBlock94Rewards       []reward
+	testnetBlock94RewardsString = `[
+		{ "addr": "0x6f488615e6b462ce8909e9cd34c3f103994ab2fb", "reward": 100000000000000000 },
+		{ "addr": "0x6bd26c4a45e7d7cac2a389142f99f12e5713d719", "reward": 250000000000000000 },
+		{ "addr": "0x816e30b6c314ba5d1a67b1b54be944ce4554ed87", "reward": 306213253695614752 }]`
 )
 
 func (n *imnNode) eq(m *imnNode) bool {
@@ -955,125 +965,6 @@ type reward struct {
 	Reward *big.Int       `json:"reward"`
 }
 
-func distributeRewards_old(six int, rewardPoolAccount, maintenanceAccount *common.Address, members []*imnMember, rewards []reward, amount *big.Int) {
-	n := len(members)
-
-	v0 := big.NewInt(0)
-	v1 := big.NewInt(1)
-	v10 := big.NewInt(10)
-	v45 := big.NewInt(45)
-	v100 := big.NewInt(100)
-	vn := big.NewInt(int64(n))
-
-	minerAmount := new(big.Int).Set(amount)
-	minerAmount.Mul(minerAmount, v45)
-	minerAmount.Div(minerAmount, v100)
-	maintAmount := new(big.Int).Set(amount)
-	maintAmount.Mul(maintAmount, v10)
-	maintAmount.Div(maintAmount, v100)
-	poolAmount := new(big.Int).Set(amount)
-	poolAmount.Sub(poolAmount, minerAmount)
-	poolAmount.Sub(poolAmount, maintAmount)
-
-	if n == 0 {
-		if rewardPoolAccount != nil {
-			poolAmount.Add(poolAmount, minerAmount)
-		} else if maintenanceAccount != nil {
-			maintAmount.Add(maintAmount, minerAmount)
-		}
-	}
-	if rewardPoolAccount == nil {
-		if n != 0 {
-			minerAmount.Add(minerAmount, poolAmount)
-		} else if maintenanceAccount != nil {
-			maintAmount.Add(maintAmount, poolAmount)
-		}
-	}
-	if maintenanceAccount == nil {
-		if n != 0 {
-			minerAmount.Add(minerAmount, maintAmount)
-		} else if rewardPoolAccount != nil {
-			poolAmount.Add(poolAmount, maintAmount)
-		}
-	}
-
-	if n > 0 {
-		b := new(big.Int).Set(minerAmount)
-		d := new(big.Int)
-		d.Div(b, vn)
-		for i := 0; i < n; i++ {
-			rewards[i].Addr = members[i].Addr
-			rewards[i].Reward = new(big.Int).Set(d)
-		}
-		d.Mul(d, vn)
-		b.Sub(b, d)
-		for i := 0; i < n && b.Cmp(v0) > 0; i++ {
-			rewards[six].Reward.Add(rewards[six].Reward, v1)
-			b.Sub(b, v1)
-			six = (six + 1) % n
-		}
-	}
-
-	if rewardPoolAccount != nil {
-		rewards[n].Addr = *rewardPoolAccount
-		rewards[n].Reward = poolAmount
-		n++
-	}
-	if maintenanceAccount != nil {
-		rewards[n].Addr = *maintenanceAccount
-		rewards[n].Reward = maintAmount
-	}
-}
-
-func (ma *imnAdmin) calculateRewards_old(num, blockReward, fees *big.Int, addBalance func(common.Address, *big.Int)) (coinbase *common.Address, rewards []byte, err error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rewardPoolAccount, maintenanceAccount, members, err := ma.getRewardAccounts(ctx, big.NewInt(num.Int64()-1))
-	if err != nil {
-		// all goes to the coinbase
-		return
-	}
-
-	if rewardPoolAccount == nil && maintenanceAccount == nil && len(members) == 0 {
-		err = imnminer.ErrNotInitialized
-		return
-	}
-
-	// determine coinbase
-	if len(members) > 0 {
-		mix := int(num.Int64()/ma.blocksPer) % len(members)
-		coinbase = &common.Address{}
-		coinbase.SetBytes(members[mix].Addr.Bytes())
-	}
-
-	n := len(members)
-	if rewardPoolAccount != nil {
-		n++
-	}
-	if maintenanceAccount != nil {
-		n++
-	}
-
-	six := 0
-	if len(members) > 0 {
-		six = int(new(big.Int).Mod(num, big.NewInt(int64(len(members)))).Int64())
-	}
-
-	rr := make([]reward, n)
-	distributeRewards_old(six, rewardPoolAccount, maintenanceAccount, members, rr,
-		new(big.Int).Add(blockReward, fees))
-
-	if addBalance != nil {
-		for _, i := range rr {
-			addBalance(i.Addr, i.Reward)
-		}
-	}
-
-	rewards, err = json.Marshal(rr)
-	return
-}
-
 func (ma *imnAdmin) verifyRewards(r1, r2 []byte) error {
 	var err error
 	var a, b []reward
@@ -1099,11 +990,17 @@ func (ma *imnAdmin) verifyRewards(r1, r2 []byte) error {
 	return nil
 }
 
-// new rewards
-// TODO: needs to check errors or inconsistencies
-//   - incorrect parametesr, i.e. distribution methods values don't add up to 1000
-//   - missing addresses
-//   - etc.
+// handles rewards in testnet block 94
+func handleBlock94Rewards(height *big.Int, rp *rewardParameters, fees *big.Int) []reward {
+	if height.Int64() != 94 || len(rp.members) != 0 ||
+		!bytes.Equal(rp.staker[:], testnetBlock94Rewards[0].Addr[:]) ||
+		!bytes.Equal(rp.ecoSystem[:], testnetBlock94Rewards[1].Addr[:]) ||
+		!bytes.Equal(rp.maintenance[:], testnetBlock94Rewards[2].Addr[:]) {
+		return nil
+	}
+	return testnetBlock94Rewards
+}
+
 func distributeRewards(height *big.Int, rp *rewardParameters, fees *big.Int) ([]reward, error) {
 	dm := new(big.Int)
 	for i := 0; i < len(rp.distributionMethod); i++ {
@@ -1175,8 +1072,17 @@ func (ma *imnAdmin) calculateRewards(num, blockReward, fees *big.Int, addBalance
 		return
 	}
 
-	// TODO: need more basic checks
-	if rp.staker == nil && rp.ecoSystem == nil && rp.maintenance == nil && len(rp.members) == 0 {
+	if (rp.staker == nil && rp.ecoSystem == nil && rp.maintenance == nil) || len(rp.members) == 0 {
+		// handle testnet block 94 rewards
+		if rewards94 := handleBlock94Rewards(num, rp, fees); rewards94 != nil {
+			if addBalance != nil {
+				for _, i := range rewards94 {
+					addBalance(i.Addr, i.Reward)
+				}
+			}
+			rewards, err = json.Marshal(rewards94)
+			return
+		}
 		err = imnminer.ErrNotInitialized
 		return
 	}
@@ -1230,7 +1136,41 @@ func signBlock(height *big.Int, hash common.Hash) (coinbase common.Address, sig 
 	return
 }
 
-func verifyBlockSig(height *big.Int, coinbase common.Address, hash common.Hash, sig []byte) bool {
+func (ma *imnAdmin) enodeExists(ctx context.Context, height, modifiedBlock *big.Int, gov *metclient.RemoteContract, nodeId []byte) (bool, error) {
+	enodes, ok := enodeCache.Load(modifiedBlock.Int64())
+	if !ok {
+		var (
+			port            *big.Int
+			name, enode, ip []byte
+			output          = []interface{}{&name, &enode, &ip, &port}
+			enodesMap       = map[string]bool{}
+		)
+		var count *big.Int
+		err := metclient.CallContract(ctx, gov, "getNodeLength", nil, &count, height)
+		if err != nil {
+			return false, err
+		}
+		for i := int64(1); i <= count.Int64(); i++ {
+			ix := big.NewInt(i)
+			err = metclient.CallContract(ctx, gov, "getNode", &ix, &output, height)
+			if err != nil {
+				return false, err
+			}
+			enodesMap[string(enode)] = true
+		}
+		enodeCache.Store(modifiedBlock.Int64(), enodesMap)
+		enodes = enodesMap
+	}
+	if enodesMap, ok := enodes.(map[string]bool); !ok {
+		return false, nil
+	} else if exists, ok := enodesMap[string(nodeId)]; !ok {
+		return false, nil
+	} else {
+		return exists, nil
+	}
+}
+
+func verifyBlockSig(height *big.Int, coinbase common.Address, nodeId []byte, hash common.Hash, sig []byte) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1245,7 +1185,7 @@ func verifyBlockSig(height *big.Int, coinbase common.Address, hash common.Hash, 
 	}
 	var (
 		modifiedBlock, ix, port *big.Int
-		name, enode, ip         []byte
+		name, enode, ip, data   []byte
 		output                  = []interface{}{&name, &enode, &ip, &port}
 	)
 	err = metclient.CallContract(ctx, gov, "modifiedBlock", nil, &modifiedBlock, num)
@@ -1255,17 +1195,28 @@ func verifyBlockSig(height *big.Int, coinbase common.Address, hash common.Hash, 
 		// not initialized yet
 		return true
 	}
-	err = metclient.CallContract(ctx, gov, "rewardIdx", &coinbase, &ix, num)
-	if err != nil {
-		return false
+	// if minerNodeId is given, i.e. present in block header, use it,
+	// otherwise, derive it from the codebase
+	if len(nodeId) == 0 {
+		// minerNodeId is not given, derive enode from the codebase
+		err = metclient.CallContract(ctx, gov, "rewardIdx", &coinbase, &ix, num)
+		if err != nil {
+			return false
+		}
+		err = metclient.CallContract(ctx, gov, "getNode", &ix, &output, num)
+		if err != nil {
+			return false
+		}
+		data = append(height.Bytes(), hash.Bytes()...)
+		data = crypto.Keccak256(data)
+	} else {
+		// minerNodeId is given, verify that it's a registered miner
+		enode = nodeId
+		if exists, err := admin.enodeExists(ctx, num, modifiedBlock, gov, enode); err != nil || exists == false {
+			return false
+		}
+		data = hash.Bytes()
 	}
-	err = metclient.CallContract(ctx, gov, "getNode", &ix, &output, num)
-	if err != nil {
-		return false
-	}
-
-	data := append(height.Bytes(), hash.Bytes()...)
-	data = crypto.Keccak256(data)
 	pubKey, err := crypto.Ecrecover(data, sig)
 	return err == nil && len(pubKey) > 1 && bytes.Equal(enode, pubKey[1:])
 }
@@ -1859,6 +1810,11 @@ func init() {
 	imnapi.EtcdMoveLeader = EtcdMoveLeader
 	imnapi.EtcdGetWork = EtcdGetWork
 	imnapi.EtcdDeleteWork = EtcdDeleteWork
+
+	// handle testnet block 94 rewards
+	if err := json.Unmarshal([]byte(testnetBlock94RewardsString), &testnetBlock94Rewards); err != nil {
+		panic("failed to unmarshal testnet block 94 rewards")
+	}
 }
 
 /* EOF */
