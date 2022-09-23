@@ -18,7 +18,6 @@ package miner
 
 import (
 	"errors"
-	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"math/big"
 	"math/rand"
 	"sync/atomic"
@@ -38,6 +37,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/params"
 )
 

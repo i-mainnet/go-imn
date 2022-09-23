@@ -20,7 +20,6 @@ package types
 import (
 	"encoding/binary"
 	"fmt"
-	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"io"
 	"math/big"
 	"reflect"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 

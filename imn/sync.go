@@ -224,7 +224,7 @@ func (ma *imnAdmin) updateMiner(locked bool) bool {
 		} else if work == nil {
 			// this must be the first block, juts move on
 			log.Debug("not initialized yet. Starting mining")
-		} else if synced, _, height, err := inSync(work); synced {
+		} else if synced, _, height, _ := inSync(work); synced {
 			log.Debug("in sync. Starting mining", "height", height)
 		} else {
 			// sync with the previous leader

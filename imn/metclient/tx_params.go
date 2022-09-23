@@ -3,10 +3,11 @@ package metclient
 
 import (
 	"context"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"math/big"
 	"sync"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // account nonce cache map. Uses a global lock for now. If necessary,
