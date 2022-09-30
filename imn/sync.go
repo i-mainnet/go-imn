@@ -3,257 +3,101 @@
 package imn
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
-	"time"
+	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/lru"
+	"github.com/ethereum/go-ethereum/core/types"
 	imnapi "github.com/ethereum/go-ethereum/imn/api"
 	imnminer "github.com/ethereum/go-ethereum/imn/miner"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+)
+
+// cached governance data to derive miner's enode
+type coinbaseEnodeEntry struct {
+	modifiedBlock  *big.Int
+	nodes          []*imnNode
+	coinbase2enode map[string][]byte // string(common.Address[:]) => []byte
+	enode2index    map[string]int    // string([]byte) => int
+}
+
+const (
+	imnWorkKey    = "work"
+	imnLockKey    = "lock"
+	MiningLockTTL = 10 // seconds
 )
 
 var (
 	syncLock = &sync.Mutex{}
-	leaderId uint64
-	leader   *imnNode
+
+	// the latest block info: *core.types.Header
+	latestBlock atomic.Value
+
+	// the latest etcd leader ID: uint64
+	latestEtcdLeader atomic.Value
+
+	// the latest mining token info: []byte, json'ed ImnEtcdLock
+	latestMiningToken atomic.Value
+
+	// the latest work info: []byte, json'ed imnWork
+	latestImnWork atomic.Value
+
+	// governance data at modifiedBlock height
+	// cached coinbase -> enode & enode existence check at given modifiedBlock
+	// sync.Map[int]*cointbaseEnodeEntry
+	coinbaseEnodeCache = &sync.Map{}
+
+	// lru cache: block height => enode
+	height2enode = lru.NewLruCache(10000, true)
+
+	// cached mining peer status
+	// sync.Map[string]*imnapi.IMNMinerStatus
+	miningPeers = &sync.Map{}
+
+	// mining token
+	miningToken atomic.Value
 )
 
-func (ma *imnAdmin) getLatestBlockInfo(node *imnNode) (height *big.Int, hash common.Hash, td *big.Int, err error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	msgch := make(chan interface{}, 16)
-	imnapi.SetMsgChannel(msgch)
-	defer func() {
-		imnapi.SetMsgChannel(nil)
-		close(msgch)
-	}()
-
-	timer := time.NewTimer(60 * time.Second)
-	err = ma.rpcCli.CallContext(ctx, nil, "admin_requestMinerStatus", &node.Id)
+func (ma *imnAdmin) handleNewBlocks() {
+	ch := make(chan *types.Header, 128)
+	sub, err := ma.cli.SubscribeNewHead(context.Background(), ch)
 	if err != nil {
-		log.Info("RequestMinerStatus Failed", "id", node.Id, "error", err)
-		return
+		panic(fmt.Sprintf("cannot subscribe to new block head: %v", err))
 	}
+	defer sub.Unsubscribe()
 
-	done := false
 	for {
-		if done {
-			break
+		typeHeader := <-ch
+		if typeHeader == nil {
+			log.Debug("typeHeader is nil")
 		}
-		select {
-		case msg := <-msgch:
-			s, ok := msg.(*imnapi.IMNMinerStatus)
-			if !ok {
-				continue
-			}
-			if s.NodeName != node.Name {
-				continue
-			}
-			height, hash, td, err = s.LatestBlockHeight, s.LatestBlockHash, s.LatestBlockTd, nil
-			return
-
-		case <-timer.C:
-			err = ErrNotRunning
-			return
+		if header, err := admin.cli.HeaderByNumber(context.Background(), nil); err == nil {
+			latestBlock.Store(header)
+			refreshCoinbaseEnodeCache(header.Number)
 		}
+		admin.update()
 	}
-	err = ethereum.NotFound
-	return
 }
 
-// syncLock should be held by the caller
-func (ma *imnAdmin) syncWith(node *imnNode, work *imnWork) error {
-	tsync := time.Now()
-
-	blocks := make(chan imnminer.IMNBlockHead, 1)
-	imnminer.SubscribeToBlockImported(&blocks)
-	defer imnminer.UnsubscribeToBlockImported()
-
-	timer := time.NewTimer(1 * time.Second)
-	defer timer.Stop()
-
-	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		ma.rpcCli.CallContext(ctx, nil, "admin_synchroniseWith", &node.Id)
+func handleMinerStatusUpdate() {
+	ch := make(chan *imnapi.IMNMinerStatus, 128)
+	sub := imnapi.SubscribeToMinerStatus(ch)
+	defer func() {
+		sub.Unsubscribe()
+		close(ch)
 	}()
-
 	for {
-		select {
-		case head := <-blocks:
-			if head.Height == work.Height && head.Hash == work.Hash {
-				log.Debug("syncwith", "self", ma.self.Name, "with", node.Name, "head", head.Height, "hash", head.Hash, "took", time.Since(tsync))
-				return nil
-			}
-		case <-timer.C:
-			log.Error("syncwith", "self", ma.self.Name, "with", node.Name, "timed out", time.Since(tsync))
-			return fmt.Errorf("timed out")
-		}
+		status := <-ch
+		miningPeers.Store(status.NodeName, status.Clone())
 	}
 }
 
-// return true if this node still is the miner after update
-func (ma *imnAdmin) updateMiner(locked bool) bool {
-	if ma.etcd == nil {
-		return false
-	}
-
-	syncLock.Lock()
-	defer syncLock.Unlock()
-
-	lid, lnode := ma.etcdLeader(locked)
-	if lid == leaderId || lid == 0 {
-		return lnode == ma.self
-	}
-
-	_, oldLeader := leaderId, leader
-	leaderId, leader = lid, lnode
-	if leader == ma.self && oldLeader != nil {
-		// We are the new leader. Make sure we have the latest block.
-		// Otherwise, punt the leadership to the next in line.
-		// If all fails, accept the potential fork and move on.
-
-		log.Debug("we are the new leader")
-		tstart := time.Now()
-
-		// get the latest work info from etcd
-		getLatestWork := func() (*imnWork, error) {
-			var (
-				workInfo string
-				work     *imnWork
-				retries  = 60
-				err      error
-			)
-
-			for ; retries > 0; retries-- {
-				workInfo, err = ma.etcdGet("work")
-				if err != nil {
-					// TODO: ignore if error is not found
-					log.Error("cannot get the latest work info",
-						"error", err, "took", time.Since(tstart))
-					continue
-				}
-
-				if workInfo == "" {
-					log.Info("the latest work info not logged yet")
-					return nil, nil
-				} else {
-					if err = json.Unmarshal([]byte(workInfo), &work); err != nil {
-						log.Error("cannot get the latest work info",
-							"error", err, "took", time.Since(tstart))
-						return nil, err
-					}
-					log.Debug("got the latest work info",
-						"height", work.Height, "hash", work.Hash,
-						"took", time.Since(tstart))
-					return work, nil
-				}
-			}
-			return nil, ethereum.NotFound
-		}
-
-		// check if we are in sync with the latest work info recorded
-		inSync := func(work *imnWork) (synced bool, latestNum uint64, curNum uint64, err error) {
-			synced, latestNum, curNum = false, 0, 0
-
-			if work == nil {
-				synced = true
-				return
-			}
-			latestNum = uint64(work.Height)
-
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			cur, err := ma.cli.HeaderByNumber(ctx, big.NewInt(work.Height))
-			if err != nil {
-				return
-			}
-			curNum = uint64(cur.Number.Int64())
-			synced = bytes.Equal(cur.Hash().Bytes(), work.Hash.Bytes())
-			return
-		}
-
-		// if we are not in sync, punt the leadership to the next in line
-		// if all fails, just move on
-		puntLeadership := func() error {
-			nodes := ma.getNodes()
-			if len(nodes) == 0 {
-				return ethereum.NotFound
-			}
-
-			ix := 0
-			for i, node := range nodes {
-				if node.Id == ma.self.Id {
-					ix = i
-					break
-				}
-			}
-			if ix >= len(nodes) {
-				return ethereum.NotFound
-			}
-
-			var err error
-			for i, j := 0, (ix+1)%len(nodes); i < len(nodes)-1; i++ {
-				err = ma.etcdMoveLeader(nodes[j].Name)
-				if err == nil {
-					return nil
-				}
-				j = (j + 1) % len(nodes)
-			}
-
-			return err
-		}
-
-		work, err := getLatestWork()
-		if err != nil {
-			log.Error("cannot get the latest work information. Yielding leadeship")
-			err = puntLeadership()
-			if err != nil {
-				log.Error("leadership yielding failed", "error", err)
-			} else {
-				log.Debug("yielded leadership")
-			}
-		} else if work == nil {
-			// this must be the first block, juts move on
-			log.Debug("not initialized yet. Starting mining")
-		} else if synced, _, height, _ := inSync(work); synced {
-			log.Debug("in sync. Starting mining", "height", height)
-		} else {
-			// sync with the previous leader
-			ma.syncWith(oldLeader, work)
-
-			if synced, _, height, _ := inSync(work); !synced {
-				// if still not in sync, give up leadership
-				err = puntLeadership()
-				if err != nil {
-					log.Error("not in sync. Leadership yielding failed",
-						"latest", work.Height, "current", height, "error", err)
-				} else {
-					log.Error("not in sync. Yielded leadership",
-						"latest", work.Height, "current", height, "self", ma.self.Name)
-				}
-			}
-		}
-
-		// update leader info again
-		lid, lnode = ma.etcdLeader(locked)
-		if lid != leaderId && lid != 0 {
-			leaderId, leader = lid, lnode
-		}
-	}
-
-	return leader == ma.self
-}
-
-func IsMiner() bool {
+func isBootNodeBeforeGenesis() bool {
 	if params.ConsensusMethod == params.ConsensusPoW {
 		return true
 	} else if params.ConsensusMethod == params.ConsensusETCD {
@@ -268,16 +112,69 @@ func IsMiner() bool {
 				return false
 			}
 		}
+	}
+	return false
+}
 
-		if admin.etcdIsLeader() {
-			return admin.updateMiner(false)
-		} else {
-			admin.blocksMined = 0
-			return false
+func loadMiningToken() *ImnEtcdLock {
+	var (
+		lck *ImnEtcdLock
+		ok  bool
+	)
+	if lckData := miningToken.Load(); lckData != nil {
+		if lck, ok = lckData.(*ImnEtcdLock); !ok {
+			return nil
 		}
-	} else {
+	}
+	return lck
+}
+
+func acquireMiningToken(height *big.Int, parentHash common.Hash) (bool, error) {
+	if isBootNodeBeforeGenesis() {
+		return true, nil
+	}
+	if admin == nil || !admin.etcdIsRunning() {
+		return false, ErrNotRunning
+	}
+	ctx, cancel := context.WithTimeout(context.Background(),
+		admin.etcd.Server.Cfg.ReqTimeout())
+	defer cancel()
+	lck, err := admin.acquireLockSync(ctx, height, parentHash, MiningLockTTL)
+	if err != nil {
+		return false, err
+	}
+	miningToken.Store(lck)
+	return true, nil
+}
+
+// log the latest block & release the mining token
+func releaseMiningToken(height *big.Int, hash, parentHash common.Hash) error {
+	if isBootNodeBeforeGenesis() {
+		return nil
+	}
+	lck := loadMiningToken()
+	if lck == nil || lck.ttl() < 0 {
+		return imnminer.ErrNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(),
+		admin.etcd.Server.Cfg.ReqTimeout())
+	defer cancel()
+	err := lck.releaseLockSync(ctx, height, hash, parentHash)
+
+	// invalidate the saved token
+	miningToken.Store(&ImnEtcdLock{})
+	return err
+}
+
+func hasMiningToken() bool {
+	if isBootNodeBeforeGenesis() {
+		return true
+	}
+	lck := loadMiningToken()
+	if lck == nil || lck.ttl() < 0 {
 		return false
 	}
+	return true
 }
 
 // EOF
