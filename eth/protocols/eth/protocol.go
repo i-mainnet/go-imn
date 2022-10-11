@@ -37,7 +37,7 @@ const (
 
 // ProtocolName is the official short name of the `eth` protocol used during
 // devp2p capability negotiation.
-const ProtocolName = "meta"
+const ProtocolName = "imn"
 
 // ProtocolVersions are the supported versions of the `eth` protocol (first
 // is primary).
