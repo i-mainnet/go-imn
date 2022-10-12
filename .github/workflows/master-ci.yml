@@ -57,4 +57,4 @@ jobs:
     - name: Check golang Test Cases 
       run: |
         unset ANDROID_HOME
-        make test-short
+        make test
