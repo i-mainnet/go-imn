@@ -48,7 +48,7 @@ One can use the following command lines to join the IMN networks. Note that the 
     
 ### IMN Testnet
 
-    gimn --imn-testnet</b> --syncmode full --datadir {data_folder} --http --http.addr 0.0.0.0
+    gimn --imn-testnet --syncmode full --datadir {data_folder} --http --http.addr 0.0.0.0
 
 ## Setting Up a New Network
 
