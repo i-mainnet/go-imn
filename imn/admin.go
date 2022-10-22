@@ -744,7 +744,7 @@ func StartAdmin(stack *node.Node, datadir string) {
 	go admin.handleNewBlocks()
 	go func() {
 		for {
-			time.Sleep(time.Duration(SyncIdleThreshold) * time.Second)
+			time.Sleep(time.Duration(SyncIdleThreshold/2) * time.Second)
 			syncCheck()
 		}
 	}()
