@@ -48,7 +48,7 @@ One can use the following command lines to join the IMN networks. Note that the 
     
 ### IMN Testnet
 
-    gimn --testnet</b> --syncmode full --datadir {data_folder} --http --http.addr 0.0.0.0
+    gimn --imn-testnet</b> --syncmode full --datadir {data_folder} --http --http.addr 0.0.0.0
 
 ## Setting Up a New Network
 
@@ -56,10 +56,10 @@ One can use `gimn.sh` script to make setup process a little easier. `gimn.sh` as
 
 ### Initial Network
 
-First create data directory in `/opt/`, say `/opt/meta`. Then, unpack gimn.tar.gz in the directory.
+First create data directory in `/opt/`, say `/opt/imn`. Then, unpack gimn.tar.gz in the directory.
 
-    mkdir /opt/meta
-    cd /opt/meta
+    mkdir /opt/imn
+    cd /opt/imn
     tar xvfz <dir>/gimn.tar.gz
 
 Once initial members / accounts and nodes are determined (at least one member / account and node are required), create a configuration file using `conf/config.json.example` as a template, say `config.json`. A member designated as `bootnode` has a special meaning. Only that account can create the governance contracts, and only that node is allowed to generate blocks before governance contracts are established. These are recorded in the genesis block as the `coinbase` and the last 64 bytes of the `extraData`.
@@ -101,7 +101,7 @@ Running the following command generates `genesis.json`.
 
 e.g.
 
-    bin/gimn.sh init meta config.json
+    bin/gimn.sh init imn config.json
 
 Copy the newly created `genesis.json` to other nodes's data directories.
 
@@ -111,7 +111,7 @@ Now start gimn.
 
 It's time to initialize governance contracts. Here we'll do a simple one-stop setup. Note that this is just for test. The real governance setup is a multi step process involving several proposals and votes. We'll prepare detailed governance setup documents later. Fow now, just do the following is enough.
 
-    bin/gimn.sh init-gov meta config.json <account-file>
+    bin/gimn.sh init-gov imn config.json <account-file>
     
 Now start the console, and check if governance contracts are set up or not.
 
@@ -130,8 +130,8 @@ Check if `etcd` is configured successfully.
 
 Set up the data directory and copy the `genesis` file as follows.
 
-    mkdir /opt/meta
-    cd /opt/meta
+    mkdir /opt/imn
+    cd /opt/imn
     mkdir geth
     cp <node-key-file> geth/nodekey
     mkdir keystore
