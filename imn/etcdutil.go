@@ -26,11 +26,14 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	imnapi "github.com/ethereum/go-ethereum/imn/api"
+	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
-	etcdLock = &SpinLock{0}
+	etcdLock         = &SpinLock{0}
+	etcdReady        = false
+	etcdAutoJoinLock = make(chan interface{}, 1)
 )
 
 func (ma *imnAdmin) etcdMemberExists(name, cluster string) (bool, error) {
@@ -80,6 +83,7 @@ func (ma *imnAdmin) etcdFixCluster(cluster string) (string, error) {
 		return "", ethereum.NotFound
 	}
 
+	found := false
 	var bb bytes.Buffer
 	for _, i := range ss {
 		if j := strings.Split(i, "="); len(j) == 2 {
@@ -88,18 +92,26 @@ func (ma *imnAdmin) etcdFixCluster(cluster string) (string, error) {
 			}
 
 			if len(j[0]) != 0 {
+				if j[0] == ma.self.Name {
+					found = true
+				}
 				bb.WriteString(i)
 			} else {
 				u, err := url.Parse(j[1])
-				if err != nil || u.Host != host {
+				if err != nil {
+					return "", err
+				} else if u.Host != host {
 					bb.WriteString(i)
 				} else {
+					found = true
 					bb.WriteString(fmt.Sprintf("%s=%s", ma.self.Name, j[1]))
 				}
 			}
 		}
 	}
-
+	if !found {
+		return cluster, ethereum.NotFound
+	}
 	return bb.String(), nil
 }
 
@@ -117,9 +129,9 @@ func (ma *imnAdmin) etcdNewConfig(newCluster bool) *embed.Config {
 	cfg.LogLevel = "error"
 	cfg.Dir = ma.etcdDir
 	cfg.Name = ma.self.Name
-	u, _ := url.Parse(fmt.Sprintf("http://%s:%d", "0.0.0.0", ma.self.Port+1))
+	u, _ := url.Parse(fmt.Sprintf("https://%s:%d", "0.0.0.0", ma.self.Port+1))
 	cfg.LPUrls = []url.URL{*u}
-	u, _ = url.Parse(fmt.Sprintf("http://%s:%d", ma.self.Ip, ma.self.Port+1))
+	u, _ = url.Parse(fmt.Sprintf("https://%s:%d", ma.self.Ip, ma.self.Port+1))
 	cfg.APUrls = []url.URL{*u}
 	u, _ = url.Parse(fmt.Sprintf("http://localhost:%d", ma.self.Port+2))
 	cfg.LCUrls = []url.URL{*u}
@@ -130,7 +142,7 @@ func (ma *imnAdmin) etcdNewConfig(newCluster bool) *embed.Config {
 	} else {
 		cfg.ClusterState = embed.ClusterStateFlagExisting
 	}
-	cfg.InitialCluster = fmt.Sprintf("%s=http://%s:%d", ma.self.Name,
+	cfg.InitialCluster = fmt.Sprintf("%s=https://%s:%d", ma.self.Name,
 		ma.self.Ip, ma.self.Port+1)
 	cfg.InitialClusterToken = etcdClusterName
 	return cfg
@@ -140,8 +152,12 @@ func (ma *imnAdmin) etcdIsRunning() bool {
 	return ma.etcd != nil && ma.etcdCli != nil
 }
 
+func (ma *imnAdmin) etcdIsReady() bool {
+	return ma.etcd != nil && ma.etcdCli != nil && etcdReady
+}
+
 func (ma *imnAdmin) etcdGetCluster() string {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return ""
 	}
 
@@ -164,10 +180,9 @@ func (ma *imnAdmin) etcdGetCluster() string {
 
 // returns new cluster string if adding the member is successful
 func (ma *imnAdmin) etcdAddMember(name string) (string, error) {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return "", ErrNotRunning
 	}
-
 	if ok, _ := ma.etcdMemberExists(name, ma.etcdGetCluster()); ok {
 		return ma.etcdGetCluster(), nil
 	}
@@ -186,8 +201,18 @@ func (ma *imnAdmin) etcdAddMember(name string) (string, error) {
 		return "", ethereum.NotFound
 	}
 
-	_, err := ma.etcdCli.MemberAdd(context.Background(),
-		[]string{fmt.Sprintf("http://%s:%d", node.Ip, node.Port+1)})
+	now := time.Now()
+	u, _ := url.Parse(fmt.Sprintf("https://%s:%d", node.Ip, node.Port+1))
+	m := membership.NewMember(node.Name, []url.URL{*u}, etcdClusterName, &now)
+	ms, err := ma.etcd.Server.AddMember(context.Background(), *m)
+	bb := &bytes.Buffer{}
+	for _, i := range ms {
+		if bb.Len() > 0 {
+			bb.WriteString(",")
+		}
+		fmt.Fprintf(bb, "%s=%s", i.Attributes.Name, i.RaftAttributes.PeerURLs[0])
+	}
+
 	if err != nil {
 		log.Error("failed to add a new member",
 			"name", name, "ip", node.Ip, "port", node.Port+1, "error", err)
@@ -195,13 +220,13 @@ func (ma *imnAdmin) etcdAddMember(name string) (string, error) {
 	} else {
 		log.Info("a new member added",
 			"name", name, "ip", node.Ip, "port", node.Port+1, "error", err)
-		return ma.etcdGetCluster(), nil
+		return bb.String(), nil
 	}
 }
 
 // returns new cluster string if removing the member is successful
 func (ma *imnAdmin) etcdRemoveMember(name string) (string, error) {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return "", ErrNotRunning
 	}
 
@@ -228,7 +253,7 @@ func (ma *imnAdmin) etcdRemoveMember(name string) (string, error) {
 }
 
 func (ma *imnAdmin) etcdMoveLeader(name string) error {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return ErrNotRunning
 	}
 
@@ -247,13 +272,13 @@ func (ma *imnAdmin) etcdMoveLeader(name string) error {
 	}
 	to := 1500 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), to)
+	defer cancel()
 	err := ma.etcd.Server.MoveLeader(ctx, ma.etcd.Server.Lead(), id)
-	cancel()
 	return err
 }
 
 func (ma *imnAdmin) etcdTransferLeadership() error {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return ErrNotRunning
 	}
 	return ma.etcd.Server.TransferLeadership()
@@ -278,6 +303,52 @@ func (ma *imnAdmin) etcdWipe() error {
 	}
 }
 
+func etcdEventHandler() {
+	if !admin.etcdIsRunning() {
+		return
+	}
+	select {
+	case <-admin.etcd.Server.ReadyNotify():
+		etcdReady = true
+		log.Info("etcd server ready")
+	case err := <-admin.etcd.Err():
+		etcdReady = false
+		log.Info("etcd server failed to start", "error", err)
+		return
+	}
+	// watch
+	ctx := context.Background()
+	workCh := admin.etcdCli.Watch(ctx, imnWorkKey)
+	lockCh := admin.etcdCli.Watch(ctx, imnTokenKey)
+	for {
+		select {
+		case <-admin.etcd.Server.LeaderChangedNotify():
+			latestEtcdLeader.Store(admin.etcd.Server.Leader())
+		case watchResp := <-workCh:
+			latestUpdateTime.Store(time.Now())
+			for _, event := range watchResp.Events {
+				switch event.Type {
+				case mvccpb.PUT:
+					latestImnWork.Store(event.Kv.Value)
+				case mvccpb.DELETE:
+					var nilBytes []byte
+					latestImnWork.Store(nilBytes)
+				}
+			}
+		case watchResp := <-lockCh:
+			for _, event := range watchResp.Events {
+				switch event.Type {
+				case mvccpb.PUT:
+					latestMiningToken.Store(event.Kv.Value)
+				case mvccpb.DELETE:
+					var nilBytes []byte
+					latestMiningToken.Store(nilBytes)
+				}
+			}
+		}
+	}
+}
+
 func (ma *imnAdmin) etcdInit() error {
 	if ma.etcdIsRunning() {
 		return ErrAlreadyRunning
@@ -288,14 +359,15 @@ func (ma *imnAdmin) etcdInit() error {
 	cfg := ma.etcdNewConfig(true)
 	etcd, err := embed.StartEtcd(cfg)
 	if err != nil {
-		log.Error("failed to initialize etcd", "error", err)
+		log.Error("etcd failed to initialize", "error", err)
 		return err
 	} else {
-		log.Info("initialized etcd server")
+		log.Info("etcd initialized")
 	}
 
 	ma.etcd = etcd
 	ma.etcdCli = v3client.New(etcd.Server)
+	go etcdEventHandler()
 	return nil
 }
 
@@ -307,77 +379,19 @@ func (ma *imnAdmin) etcdStart() error {
 	cfg := ma.etcdNewConfig(false)
 	etcd, err := embed.StartEtcd(cfg)
 	if err != nil {
-		log.Error("failed to start etcd", "error", err)
+		log.Error("etcd failed to start", "error", err)
 		return err
 	} else {
-		log.Info("started etcd server")
+		log.Info("etcd started")
 	}
-
 	ma.etcd = etcd
 	ma.etcdCli = v3client.New(etcd.Server)
-
-	// capture leader changes & latest work updates
-	go func() {
-		// watch
-		workCh := ma.etcdCli.Watch(context.Background(), imnWorkKey)
-		lockCh := ma.etcdCli.Watch(context.Background(), imnTokenKey)
-		for {
-			if !ma.etcdIsRunning() {
-				break
-			}
-			select {
-			case <-etcd.Server.LeaderChangedNotify():
-				latestEtcdLeader.Store(ma.etcd.Server.Leader())
-			case watchResp := <-workCh:
-				latestUpdateTime.Store(time.Now())
-				for _, event := range watchResp.Events {
-					switch event.Type {
-					case mvccpb.PUT:
-						latestImnWork.Store(event.Kv.Value)
-					case mvccpb.DELETE:
-						var nilBytes []byte
-						latestImnWork.Store(nilBytes)
-					}
-				}
-			case watchResp := <-lockCh:
-				for _, event := range watchResp.Events {
-					switch event.Type {
-					case mvccpb.PUT:
-						latestMiningToken.Store(event.Kv.Value)
-					case mvccpb.DELETE:
-						var nilBytes []byte
-						latestMiningToken.Store(nilBytes)
-					}
-				}
-			}
-		}
-	}()
-	return nil
-}
-
-func (ma *imnAdmin) etcdJoin_old(cluster string) error {
-	if ma.etcdIsRunning() {
-		return ErrAlreadyRunning
-	}
-
-	cfg := ma.etcdNewConfig(false)
-	cfg.InitialCluster = cluster
-	etcd, err := embed.StartEtcd(cfg)
-	if err != nil {
-		log.Error("failed to join etcd", "error", err)
-		return err
-	} else {
-		log.Info("started etcd server")
-	}
-
-	ma.etcd = etcd
-	ma.etcdCli = v3client.New(etcd.Server)
+	go etcdEventHandler()
 	return nil
 }
 
 func (ma *imnAdmin) etcdJoin(name string) error {
 	var node *imnNode
-
 	ma.lock.Lock()
 	for _, i := range ma.nodes {
 		if i.Name == name || i.Enode == name || i.Id == name || i.Ip == name {
@@ -398,10 +412,11 @@ func (ma *imnAdmin) etcdJoin(name string) error {
 		close(ch)
 	}()
 
-	timer := time.NewTimer(30 * time.Second)
-	ctx, cancel := context.WithCancel(context.Background())
+	to := 30 * time.Second
+	timer := time.NewTimer(to)
+	ctx, cancel := context.WithTimeout(context.Background(), to)
+	defer cancel()
 	err := admin.rpcCli.CallContext(ctx, nil, "admin_requestEtcdAddMember", &node.Id)
-	cancel()
 	if err != nil {
 		log.Error("admin_requestEtcdAddMember failed", "id", node.Id, "error", err)
 		return err
@@ -410,25 +425,117 @@ func (ma *imnAdmin) etcdJoin(name string) error {
 	for {
 		select {
 		case cluster := <-ch:
-			cluster, _ = ma.etcdFixCluster(cluster)
+			cluster, err := ma.etcdFixCluster(cluster)
+			if err != nil {
+				log.Error("etcd failed to join", "error", err)
+				return err
+			}
 
 			cfg := ma.etcdNewConfig(false)
 			cfg.InitialCluster = cluster
 			etcd, err := embed.StartEtcd(cfg)
 			if err != nil {
-				log.Error("failed to join etcd", "error", err)
+				log.Error("etcd failed to join", "error", err)
 				return err
 			} else {
-				log.Info("started etcd server")
+				log.Info("etcd started server")
 			}
-
 			ma.etcd = etcd
 			ma.etcdCli = v3client.New(etcd.Server)
+			go etcdEventHandler()
 			return nil
 
 		case <-timer.C:
 			return fmt.Errorf("Timed Out")
 		}
+	}
+}
+
+// staggered auto join
+func (ma *imnAdmin) etcdAutoJoin() error {
+	select {
+	case etcdAutoJoinLock <- struct{}{}:
+	default:
+		return nil
+	}
+	defer func() {
+		<-etcdAutoJoinLock
+	}()
+
+	// boot node
+	if ma.nodeInfo != nil && ma.nodeInfo.ID == ma.bootNodeId {
+		etcdLock.Lock()
+		defer etcdLock.Unlock()
+		return ma.etcdInit()
+	}
+
+	// collect miners that haven't joined the etcd network yet
+	var sz, gap, ix int64
+	if states := getMiners("", 0); len(states) > 0 {
+		var tobes []*imnapi.IMNMinerStatus
+		for _, state := range states {
+			if state.NodeName == admin.self.Name || !strings.Contains(state.MiningPeers, "*") {
+				tobes = append(tobes, state)
+			}
+		}
+		sz = int64(len(tobes))
+		gap = 23
+		if sz <= 11 {
+			sz = 11
+			gap = 7
+		} else if sz <= 23 {
+			sz = 23
+			gap = 11
+		} else if sz <= 41 {
+			sz = 41
+			gap = 17
+		}
+		ix = -1
+		for i := 0; i < len(tobes); i++ {
+			if tobes[i].NodeName == admin.self.Name {
+				ix = int64(i)
+				break
+			}
+		}
+		if ix == -1 {
+			return ErrNotFound
+		}
+	}
+
+	// schedule it
+	tt := sz * gap
+	ct := time.Now().Unix()
+	st := ct/tt*tt + sz
+	t := st + ix*gap + (rand.Int63()%(gap/2) - (gap / 4))
+	if t < ct {
+		t += tt
+	}
+	if dt := t - ct; dt > 0 {
+		time.Sleep(time.Duration(dt) * time.Second)
+	}
+
+	if ma.etcdIsRunning() {
+		return nil
+	}
+	etcdLock.Lock()
+	defer etcdLock.Unlock()
+
+	var state *imnapi.IMNMinerStatus
+	for _, s := range getMiners("", 0) {
+		if s.NodeName != admin.self.Name && s.Status == "up" && strings.Contains(s.MiningPeers, "*") {
+			state = s
+			break
+		}
+	}
+
+	if state == nil {
+		err := ErrNotFound
+		log.Info("etcd join failed", "name", admin.self.Name, "error", err)
+		return err
+	} else {
+		err := admin.etcdJoin(state.NodeName)
+		log.Info("etcd join", "name", admin.self.Name, "server", state.NodeName, "error", err)
+		return err
 	}
 }
 
@@ -448,7 +555,7 @@ func (ma *imnAdmin) etcdStop() error {
 }
 
 func (ma *imnAdmin) etcdIsLeader() bool {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return false
 	} else {
 		return ma.etcd.Server.ID() == ma.etcd.Server.Leader()
@@ -457,7 +564,7 @@ func (ma *imnAdmin) etcdIsLeader() bool {
 
 // returns leader id and node
 func (ma *imnAdmin) etcdLeader(locked bool) (uint64, *imnNode) {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return 0, nil
 	}
 
@@ -485,7 +592,7 @@ func (ma *imnAdmin) etcdLeader(locked bool) (uint64, *imnNode) {
 }
 
 func (ma *imnAdmin) etcdPut(key, value string) (int64, error) {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return 0, ErrNotRunning
 	}
 
@@ -501,7 +608,7 @@ func (ma *imnAdmin) etcdPut(key, value string) (int64, error) {
 }
 
 func (ma *imnAdmin) etcdGet(key string) (string, error) {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return "", ErrNotRunning
 	}
 
@@ -524,7 +631,7 @@ func (ma *imnAdmin) etcdGet(key string) (string, error) {
 
 // compare & swap, do put only if previous value matches
 func (ma *imnAdmin) etcdPut2(key, value, prev string) error {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return ErrNotRunning
 	}
 
@@ -548,7 +655,7 @@ func (ma *imnAdmin) etcdPut2(key, value, prev string) error {
 }
 
 func (ma *imnAdmin) etcdDelete(key string) error {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return ErrNotRunning
 	}
 	ctx, cancel := context.WithTimeout(context.Background(),
@@ -561,7 +668,7 @@ func (ma *imnAdmin) etcdDelete(key string) error {
 // handles removed nodes
 // caller should take care of etcd & governance lock
 func etcdSyncMembership() error {
-	if admin == nil || !admin.amPartner() || admin.self == nil || !admin.etcdIsRunning() {
+	if admin == nil || !admin.amPartner() || admin.self == nil || !admin.etcdIsReady() {
 		return nil
 	}
 
@@ -607,15 +714,18 @@ func etcdSyncMembership() error {
 
 type ImnToken struct {
 	admin  *imnAdmin
-	Miner  string `json:"miner"`
-	ID     uint64 `json:"id"`
-	Height int64  `json:"height"`
-	Since  int64  `json:"since"`
-	Till   int64  `json:"till"`
-	Key    string `json:"key"`
+	Miner  string   `json:"miner"`
+	ID     uint64   `json:"id"`
+	Height *big.Int `json:"height"`
+	Since  int64    `json:"since"`
+	Till   int64    `json:"till"`
+	Key    string   `json:"key"`
 }
 
 func (ma *imnAdmin) acquireToken(ctx context.Context, height *big.Int, ttl int) (*ImnToken, error) {
+	if !ma.etcdIsReady() {
+		return nil, imnminer.ErrNotInitialized
+	}
 again:
 	now := time.Now().Unix()
 	till := now + int64(ttl)
@@ -623,7 +733,7 @@ again:
 		admin:  ma,
 		Miner:  ma.self.Name,
 		ID:     uint64(ma.etcd.Server.ID()),
-		Height: height.Int64(),
+		Height: height,
 		Since:  now,
 		Till:   till,
 		Key:    imnTokenKey,
@@ -832,6 +942,9 @@ func (ma *imnAdmin) ttl2(ctx context.Context, key string) (int64, error) {
 //
 //	if not present, put an empty string & try again
 func (ma *imnAdmin) acquireTokenSync(ctx context.Context, height *big.Int, parentHash common.Hash, ttl int64) (*ImnToken, error) {
+	if !ma.etcdIsReady() {
+		return nil, imnminer.ErrNotInitialized
+	}
 	if ok, err := ma.isEligibleMiner(height); err != nil {
 		return nil, err
 	} else if !ok {
@@ -853,7 +966,7 @@ again:
 		admin:  ma,
 		Miner:  ma.self.Name,
 		ID:     uint64(ma.etcd.Server.ID()),
-		Height: height.Int64(),
+		Height: height,
 		Since:  now,
 		Till:   till,
 		Key:    imnTokenKey,
@@ -1019,7 +1132,7 @@ again:
 }
 
 func (ma *imnAdmin) etcdCompact(rev int64) error {
-	if !ma.etcdIsRunning() {
+	if !ma.etcdIsReady() {
 		return ErrNotRunning
 	}
 
@@ -1048,8 +1161,8 @@ func (ma *imnAdmin) etcdInfo() interface{} {
 
 	ctx, cancel := context.WithTimeout(context.Background(),
 		ma.etcd.Server.Cfg.ReqTimeout())
+	defer cancel()
 	rsp, err := ma.etcdCli.MemberList(ctx)
-	cancel()
 
 	var ms []*etcdserverpb.Member
 	if err == nil {
@@ -1118,25 +1231,7 @@ func EtcdStart() {
 
 	admin.etcdStart()
 	if !admin.etcdIsRunning() {
-		// try to join a random peer
-		var node *imnNode
-		admin.lock.Lock()
-		if len(admin.nodes) > 0 {
-			ix := rand.Int() % len(admin.nodes)
-			for _, i := range admin.nodes {
-				if ix <= 0 {
-					node = i
-					break
-				}
-				ix--
-			}
-		}
-		admin.lock.Unlock()
-
-		if node != nil && admin.isPeerUp(node.Id) {
-			log.Info("IMN", "Trying to join", node.Name)
-			admin.etcdJoin(node.Name)
-		}
+		go admin.etcdAutoJoin()
 	}
 }
 
