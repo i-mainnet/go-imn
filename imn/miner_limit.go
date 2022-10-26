@@ -120,7 +120,7 @@ func enodeExists(ctx context.Context, height *big.Int, gov *metclient.RemoteCont
 	return ix >= 1, nil
 }
 
-// returns wemix nodes at given height
+// returns imn nodes at given height
 func getNodesAt(height *big.Int) ([]*imnNode, error) {
 	ctx := context.Background()
 	if _, gov, _, err := admin.getRegGovEnvContracts(ctx, height); err != nil {
