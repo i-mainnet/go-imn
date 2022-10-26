@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethdb"
+	imnapi "github.com/ethereum/go-ethereum/imn/api"
 	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/hashicorp/go-bexpr"
@@ -286,4 +287,19 @@ func (*HandlerT) DbStats(device string, b interface{}) []uint64 {
 
 func (*HandlerT) VerifyBlockRewards(block *big.Int) interface{} {
 	return imnminer.VerifyBlockRewards(block)
+}
+
+// Remove an etcd key / value pair
+func (*HandlerT) EtcdPut(key, value string) error {
+	return imnapi.EtcdPut(key, value)
+}
+
+// Get etcd key's value
+func (*HandlerT) EtcdGet(key string) (string, error) {
+	return imnapi.EtcdGet(key)
+}
+
+// Remove an etcd key / value pair
+func (*HandlerT) EtcdDelete(key string) error {
+	return imnapi.EtcdDelete(key)
 }

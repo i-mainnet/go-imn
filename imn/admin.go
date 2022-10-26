@@ -129,9 +129,14 @@ var (
 	nilAddress      = common.Address{}
 	admin           *imnAdmin
 
-	ErrNotRunning     = errors.New("not running")
 	ErrAlreadyRunning = errors.New("already running")
+	ErrExists         = errors.New("already exists")
+	ErrIneligible     = errors.New("not eligible")
 	ErrInvalidEnode   = errors.New("invalid enode")
+	ErrInvalidToken   = errors.New("invalid token")
+	ErrInvalidWork    = errors.New("invalid work")
+	ErrNotFound       = errors.New("not found")
+	ErrNotRunning     = errors.New("not running")
 
 	etcdCompactFrequency = int64(100)
 	etcdCompactWindow    = int64(100)
@@ -139,9 +144,6 @@ var (
 	// cached block build parameters
 	blockBuildParamsLock = &sync.Mutex{}
 	blockBuildParams     *blockBuildParameters
-
-	// cached node id / enode check
-	enodeCache = &sync.Map{}
 
 	// testnet block 94 rewards
 	testnetBlock94Rewards       []reward
@@ -739,10 +741,11 @@ func StartAdmin(stack *node.Node, datadir string) {
 	}
 
 	go admin.run()
+	go admin.handleNewBlocks()
 	go func() {
 		for {
-			admin.updateMiner(false)
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Duration(SyncIdleThreshold/2) * time.Second)
+			syncCheck()
 		}
 	}()
 }
@@ -769,8 +772,11 @@ func (ma *imnAdmin) addPeer(node *imnNode) error {
 }
 
 func (ma *imnAdmin) update() {
-	refresh := false
+	if ma.registry == nil || ma.registry.To == nil {
+		return
+	}
 
+	refresh := false
 	registry, gov, staking, envStorage, err := ma.getAdminAddresses()
 	if err != nil {
 		return
@@ -904,6 +910,10 @@ func (ma *imnAdmin) checkMining() {
 		} else {
 			log.Info("Stopped miner")
 		}
+	}
+	if mining != nil && !*mining {
+		// in case we're leader, transfer leadership
+		ma.etcdTransferLeadership()
 	}
 }
 
@@ -1137,40 +1147,6 @@ func signBlock(height *big.Int, hash common.Hash) (coinbase common.Address, sig 
 	return
 }
 
-func (ma *imnAdmin) enodeExists(ctx context.Context, height, modifiedBlock *big.Int, gov *metclient.RemoteContract, nodeId []byte) (bool, error) {
-	enodes, ok := enodeCache.Load(modifiedBlock.Int64())
-	if !ok {
-		var (
-			port            *big.Int
-			name, enode, ip []byte
-			output          = []interface{}{&name, &enode, &ip, &port}
-			enodesMap       = map[string]bool{}
-		)
-		var count *big.Int
-		err := metclient.CallContract(ctx, gov, "getNodeLength", nil, &count, height)
-		if err != nil {
-			return false, err
-		}
-		for i := int64(1); i <= count.Int64(); i++ {
-			ix := big.NewInt(i)
-			err = metclient.CallContract(ctx, gov, "getNode", &ix, &output, height)
-			if err != nil {
-				return false, err
-			}
-			enodesMap[string(enode)] = true
-		}
-		enodeCache.Store(modifiedBlock.Int64(), enodesMap)
-		enodes = enodesMap
-	}
-	if enodesMap, ok := enodes.(map[string]bool); !ok {
-		return false, nil
-	} else if exists, ok := enodesMap[string(nodeId)]; !ok {
-		return false, nil
-	} else {
-		return exists, nil
-	}
-}
-
 func verifyBlockSig(height *big.Int, coinbase common.Address, nodeId []byte, hash common.Hash, sig []byte) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1180,43 +1156,32 @@ func verifyBlockSig(height *big.Int, coinbase common.Address, nodeId []byte, has
 	_, gov, _, err := admin.getRegGovEnvContracts(ctx, num)
 	if err != nil {
 		return err == imnminer.ErrNotInitialized
-	}
-	var (
-		modifiedBlock, ix, port *big.Int
-		name, enode, ip, data   []byte
-		output                  = []interface{}{&name, &enode, &ip, &port}
-	)
-	err = metclient.CallContract(ctx, gov, "modifiedBlock", nil, &modifiedBlock, num)
-	if err != nil {
-		return false
-	} else if modifiedBlock.Int64() == 0 {
-		// not initialized yet
-		return true
+	} else if count, err := admin.getInt(ctx, gov, num, "getMemberLength"); err != nil || count == 0 {
+		return err == imnminer.ErrNotInitialized || count == 0
 	}
 	// if minerNodeId is given, i.e. present in block header, use it,
 	// otherwise, derive it from the codebase
+	var data []byte
 	if len(nodeId) == 0 {
-		// minerNodeId is not given, derive enode from the codebase
-		err = metclient.CallContract(ctx, gov, "rewardIdx", &coinbase, &ix, num)
-		if err != nil {
-			return false
-		}
-		err = metclient.CallContract(ctx, gov, "getNode", &ix, &output, num)
-		if err != nil {
+		nodeId, err = coinbaseExists(ctx, height, gov, &coinbase)
+		if err != nil || len(nodeId) == 0 {
 			return false
 		}
 		data = append(height.Bytes(), hash.Bytes()...)
 		data = crypto.Keccak256(data)
 	} else {
-		// minerNodeId is given, verify that it's a registered miner
-		enode = nodeId
-		if exists, err := admin.enodeExists(ctx, num, modifiedBlock, gov, enode); err != nil || !exists {
+		if ok, err := enodeExists(ctx, height, gov, nodeId); err != nil || !ok {
 			return false
 		}
 		data = hash.Bytes()
 	}
 	pubKey, err := crypto.Ecrecover(data, sig)
-	return err == nil && len(pubKey) > 1 && bytes.Equal(enode, pubKey[1:])
+	if err != nil || len(pubKey) < 1 || !bytes.Equal(nodeId, pubKey[1:]) {
+		return false
+	}
+	// check miner limit
+	ok, err := admin.verifyMinerLimit(ctx, height, gov, &coinbase, nodeId)
+	return err == nil && ok
 }
 
 func (ma *imnAdmin) getNodeInfo() (*p2p.NodeInfo, error) {
@@ -1318,64 +1283,16 @@ func (ma *imnAdmin) pendingEmpty() bool {
 	return status.Pending == 0
 }
 
-func LogBlock(height int64, hash common.Hash) {
-	if admin == nil || admin.self == nil {
-		return
+func getMaxPriorityFeePerGas() *big.Int {
+	defaultFee := big.NewInt(100 * params.GWei)
+	if admin == nil || admin.envStorage == nil || admin.envStorage.To == nil {
+		return defaultFee
 	}
-
-	admin.lock.Lock()
-	defer admin.lock.Unlock()
-
-	work, err := json.Marshal(&imnWork{
-		Height: height,
-		Hash:   hash,
-	})
-	if err != nil {
-		log.Error("marshaling failure????")
+	var fee *big.Int
+	if err := metclient.CallContract(context.Background(), admin.envStorage, "getMaxPriorityFeePerGas", nil, &fee, nil); err != nil {
+		return defaultFee
 	}
-
-	tstart := time.Now()
-	rev, err := admin.etcdPut("work", string(work))
-	if err != nil {
-		log.Error("failed to log the latest block",
-			"height", height, "hash", hash, "took", time.Since(tstart))
-	} else {
-		log.Debug("logged the latest block",
-			"height", height, "hash", hash, "took", time.Since(tstart))
-
-		if ((rev%etcdCompactFrequency == 0) && (rev > etcdCompactFrequency)) && (rev > etcdCompactWindow) {
-			defer func() {
-				go func() {
-					if err := admin.etcdCompact(rev - etcdCompactWindow + 1); err != nil {
-						log.Error("failed to compact",
-							"rev", rev, "took", time.Since(tstart))
-					}
-				}()
-			}()
-		}
-	}
-
-	admin.blocksMined++
-	height++
-	if admin.blocksMined >= admin.blocksPer &&
-		height%admin.blocksPer == 0 {
-		// time to yield leader role
-
-		_, next, _ := admin.getMinerNodes(height, true)
-		if next.Id == admin.self.Id {
-			log.Debug("yield to self", "mined", admin.blocksMined,
-				"new miner", "self")
-		} else {
-			if err := admin.etcdMoveLeader(next.Name); err == nil {
-				log.Debug("yielded", "mined", admin.blocksMined,
-					"new miner", next.Name)
-				admin.blocksMined = 0
-			} else {
-				log.Error("yield failed", "mined", admin.blocksMined,
-					"new miner", next.Name, "error", err)
-			}
-		}
-	}
+	return fee
 }
 
 func suggestGasPrice() *big.Int {
@@ -1420,8 +1337,11 @@ func getBlockBuildParameters(height *big.Int) (blockInterval int64, maxBaseFee, 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var env *metclient.RemoteContract
-	if _, _, env, err = admin.getRegGovEnvContracts(ctx, height); err != nil {
+	var env, gov *metclient.RemoteContract
+	if _, gov, env, err = admin.getRegGovEnvContracts(ctx, height); err != nil {
+		err = imnminer.ErrNotInitialized
+		return
+	} else if count, err2 := admin.getInt(ctx, gov, height, "getMemberLength"); err2 != nil || count == 0 {
 		err = imnminer.ErrNotInitialized
 		return
 	}
@@ -1599,11 +1519,11 @@ func getMiners(id string, timeout int) []*imnapi.IMNMinerStatus {
 
 	var miners []*imnapi.IMNMinerStatus
 	var err error
-	msgch := make(chan interface{}, len(nodes)*2+1)
-	imnapi.SetMsgChannel(msgch)
+	ch := make(chan *imnapi.IMNMinerStatus, len(nodes)*2+1)
+	sub := imnapi.SubscribeToMinerStatus(ch)
 	defer func() {
-		imnapi.SetMsgChannel(nil)
-		close(msgch)
+		sub.Unsubscribe()
+		close(ch)
 	}()
 
 	startTime := time.Now().UnixNano()
@@ -1662,16 +1582,15 @@ func getMiners(id string, timeout int) []*imnapi.IMNMinerStatus {
 			break
 		}
 		select {
-		case msg := <-msgch:
-			s, ok := msg.(*imnapi.IMNMinerStatus)
-			if !ok {
+		case status := <-ch:
+			if done {
 				continue
 			}
-			if n, exists := peers[s.NodeName]; exists {
-				s.RttMs = big.NewInt((time.Now().UnixNano() - startTime) / 1000000)
-				miners = append(miners, s)
+			if n, exists := peers[status.NodeName]; exists {
+				status.RttMs = big.NewInt((time.Now().UnixNano() - startTime) / 1000000)
+				miners = append(miners, status)
 				if n != nil {
-					peers[s.NodeName] = nil
+					peers[status.NodeName] = nil
 					count--
 					if count <= 0 {
 						done = true
@@ -1722,10 +1641,6 @@ func (ma *imnAdmin) getTxPoolStatus() (pending, queued uint, err error) {
 }
 
 func requirePendingTxs() bool {
-	if !IsMiner() {
-		return false
-	}
-
 	p, _, e := admin.getTxPoolStatus()
 	if e != nil {
 		return false
@@ -1773,11 +1688,9 @@ func verifyBlockRewards(height *big.Int) interface{} {
 }
 
 func init() {
-	imnminer.IsMinerFunc = IsMiner
 	imnminer.AmPartnerFunc = AmPartner
 	imnminer.IsPartnerFunc = IsPartner
 	imnminer.AmHubFunc = AmHub
-	imnminer.LogBlockFunc = LogBlock
 	imnminer.SuggestGasPriceFunc = suggestGasPrice
 	imnminer.CalculateRewardsFunc = calculateRewards
 	imnminer.VerifyRewardsFunc = verifyRewards
@@ -1786,6 +1699,9 @@ func init() {
 	imnminer.RequirePendingTxsFunc = requirePendingTxs
 	imnminer.VerifyBlockRewardsFunc = verifyBlockRewards
 	imnminer.GetBlockBuildParametersFunc = getBlockBuildParameters
+	imnminer.AcquireMiningTokenFunc = acquireMiningToken
+	imnminer.ReleaseMiningTokenFunc = releaseMiningToken
+	imnminer.HasMiningTokenFunc = hasMiningToken
 	imnapi.Info = Info
 	imnapi.GetMiners = getMiners
 	imnapi.GetMinerStatus = getMinerStatus
@@ -1796,11 +1712,17 @@ func init() {
 	imnapi.EtcdMoveLeader = EtcdMoveLeader
 	imnapi.EtcdGetWork = EtcdGetWork
 	imnapi.EtcdDeleteWork = EtcdDeleteWork
+	imnapi.EtcdGet = EtcdGet
+	imnapi.EtcdPut = EtcdPut
+	imnapi.EtcdDelete = EtcdDelete
 
 	// handle testnet block 94 rewards
 	if err := json.Unmarshal([]byte(testnetBlock94RewardsString), &testnetBlock94Rewards); err != nil {
 		panic("failed to unmarshal testnet block 94 rewards")
 	}
+
+	// handle mining peers' status update
+	go handleMinerStatusUpdate()
 }
 
 /* EOF */
