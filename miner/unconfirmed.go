@@ -23,7 +23,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	imnminer "github.com/ethereum/go-ethereum/imn/miner"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -88,7 +87,6 @@ func (set *unconfirmedBlocks) Insert(index uint64, hash common.Hash) {
 	if header == nil {
 		log.Info("🔨 mined potential block", "number", index, "hash", hash)
 	} else {
-		go imnminer.LogBlock(header.Number.Int64(), hash)
 		log.Info("🔨 mined potential block", "number", index, "hash", hash, "elapsed", common.PrettyDuration(time.Since(time.Unix(int64(header.Time), 0))))
 	}
 }

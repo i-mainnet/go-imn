@@ -528,11 +528,6 @@ func (w *worker) newWorkLoopEx(recommit time.Duration) {
 	timer := time.NewTimer(10 * time.Millisecond)
 	defer timer.Stop()
 
-	// to be notified when we become the leader / miner
-	leader := make(chan struct{}, 1)
-	imnminer.SubscribeToLeadership(&leader)
-	defer imnminer.UnsubscribeToLeadership()
-
 	// commitSimple just starts a new commitNewWork
 	commitSimple := func() {
 		if atomic.CompareAndSwapInt32(&busyMining, 0, 1) {
@@ -560,18 +555,12 @@ func (w *worker) newWorkLoopEx(recommit time.Duration) {
 			commitSimple()
 
 		case head := <-w.chainHeadCh:
-			// if leader & miner, may be waiting to sync with the previous miner
-			imnminer.FeedBlockImported(int64(head.Block.NumberU64()), head.Block.Hash())
 			clearPending(head.Block.NumberU64())
-			commitSimple()
-
-		case <-leader:
-			// got the leadership
 			commitSimple()
 
 		case <-timer.C:
 			commitSimple()
-			timer.Reset(10 * time.Millisecond)
+			timer.Reset(1 * time.Second)
 
 		case <-w.resubmitIntervalCh:
 		case <-w.resubmitAdjustCh:
@@ -1605,9 +1594,19 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 	} else {
 		return
 	}
-	if !imnminer.IsPoW() && !imnminer.IsMiner() {
-		w.refreshPending(true)
-		return
+	if !imnminer.IsPoW() {
+		parent := w.chain.CurrentBlock()
+		height := new(big.Int).Add(parent.Number(), common.Big1)
+		ok, err := imnminer.AcquireMiningToken(height, parent.Hash())
+		if ok {
+			log.Debug("Mining Token, successful", "height", height, "parent-hash", parent.Hash())
+		} else {
+			log.Debug("Mining Token, failure", "height", height, "parent-hash", parent.Hash(), "error", err)
+		}
+		if !ok {
+			w.refreshPending(true)
+			return
+		}
 	}
 
 	start := time.Now()
@@ -1660,7 +1659,7 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 // Note the assumption is held that the mutation is allowed to the passed env, do
 // the deep copy first.
 func (w *worker) commit(env *environment, interval func(), update bool, start time.Time) error {
-	if !imnminer.IsPoW() && !imnminer.IsMiner() {
+	if !imnminer.IsPoW() && !imnminer.HasMiningToken() {
 		return errors.New("Not Miner")
 	}
 
@@ -1699,7 +1698,7 @@ func (w *worker) commit(env *environment, interval func(), update bool, start ti
 // In IMM, uncles are not welcome and difficulty is so low,
 // there's no reason to run miners asynchronously.
 func (w *worker) commitEx(env *environment, interval func(), update bool, start time.Time) error {
-	if !imnminer.IsPoW() && !imnminer.IsMiner() {
+	if !imnminer.IsPoW() && !imnminer.HasMiningToken() {
 		return errors.New("Not Miner")
 	}
 	if w.isRunning() {
@@ -1759,6 +1758,11 @@ func (w *worker) commitEx(env *environment, interval func(), update bool, start 
 					}
 					logs = append(logs, receipt.Logs...)
 				}
+				if !imnminer.IsPoW() {
+					if err = imnminer.ReleaseMiningToken(sealedBlock.Number(), sealedBlock.Hash(), sealedBlock.ParentHash()); err != nil {
+						return err
+					}
+				}
 				// Commit block and state to database.
 				_, err := w.chain.WriteBlockAndSetHead(sealedBlock, receipts, logs, env.state, true)
 				if err != nil {
@@ -1767,10 +1771,6 @@ func (w *worker) commitEx(env *environment, interval func(), update bool, start 
 				}
 				log.Info("Successfully sealed new block", "number", sealedBlock.Number(), "sealhash", sealhash, "hash", hash,
 					"elapsed", common.PrettyDuration(time.Since(createdAt)))
-
-				if !imnminer.IsPoW() && !imnminer.IsMiner() {
-					return errors.New("Not Miner")
-				}
 
 				// Broadcast the block and announce chain insertion event
 				w.mux.Post(core.NewMinedBlockEvent{Block: sealedBlock})
