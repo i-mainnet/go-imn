@@ -319,7 +319,7 @@ var GovernanceDeployer = new function() {
                 1000,
                 web3.toWei(1, 'ether'),    // mint amount: 1 imn
                 web3.toWei(100, 'gwei'),   // tip: 100 gwei
-                4000, 1000, 2500, 2500,    // NCPs, IMN Staker, Eco System, Maintenance
+                5000, 0, 2500, 2500,    // NCPs, IMN Staker, Eco System, Maintenance
                 web3.toWei(50000, 'gwei'), // maxBaseFee * 21000 -> 1.05 imn
                 5000 * 21000, 55, 30 ]
         txs[txs.length] = this.sendTx(envStorage.address, null,

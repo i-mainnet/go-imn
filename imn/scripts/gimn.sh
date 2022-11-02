@@ -166,10 +166,13 @@ function start ()
         SYNC_MODE="--syncmode full --gcmode archive";;
     esac
 
-    OPTS="$COINBASE $DISCOVER $RPCOPT $BOOT_NODES $NONCE_LIMIT $TESTNET $SYNC_MODE ${GIMN_OPTS} --snapshot=false"
+    OPTS="$COINBASE $DISCOVER $RPCOPT $BOOT_NODES $NONCE_LIMIT $TESTNET $SYNC_MODE ${GIMN_OPTS}"
     [ "$PORT" = "" ] || OPTS="${OPTS} --port $(($PORT + 1))"
     [ "$HUB" = "" ] || OPTS="${OPTS} --hub ${HUB}"
     [ "$MAX_TXS_PER_BLOCK" = "" ] || OPTS="${OPTS} --maxtxsperblock ${MAX_TXS_PER_BLOCK}"
+
+    [ "$SNAPSHOT" = "" ] || OPTS="${OPTS} --snapshot=${SNAPSHOT}"
+    [ "$ETHSTATS" = "" ] || OPTS="${OPTS} --ethstats ${ETHSTATS}"
 
     [ -d "$d/logs" ] || mkdir -p $d/logs
 
